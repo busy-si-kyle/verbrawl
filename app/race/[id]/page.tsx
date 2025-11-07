@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,8 @@ import { useRoom } from '@/components/room-provider';
 import { CountdownTimer } from '@/components/countdown-timer';
 import WordleGrid from '@/components/wordle-grid';
 import Keyboard from '@/components/keyboard';
+import { toast } from 'sonner';
+import { getLetterStatuses, getRandomWords, getWordLists, isValidWord } from '@/lib/word-utils';
 
 export default function RaceRoomPage() {
   const params = useParams();
@@ -18,6 +20,10 @@ export default function RaceRoomPage() {
   const { 
     status, 
     players, 
+    scores,
+    words: sharedWords, // Get shared words from room provider
+    gameOver: roomGameOver, // Get game over status from room provider
+    winner: roomWinner, // Get winner from room provider
     countdownRemaining, 
     getRoomInfo, 
     leaveRoom,
@@ -39,20 +45,42 @@ export default function RaceRoomPage() {
   const [board, setBoard] = useState<string[][]>(initialBoard);
   const [currentRow, setCurrentRow] = useState<number>(0);
   const [currentCol, setCurrentCol] = useState<number>(0);
-  const [revealed, setRevealed] = useState<boolean[][]>(
+  const [revealed, setRevealed] = useState<(boolean | 'correct' | 'present' | 'absent')[][]>(
     Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false))
   );
   const [usedKeys, setUsedKeys] = useState<Record<string, string>>({});
 
-  const [gameOver, setGameOver] = useState(false);
+  const [gameOver, setGameOver] = useState(false); // Local game over state
   const [playerStats, setPlayerStats] = useState({
     completed: false,
     timeTaken: 0
   });
   
-  // Track scores for both players
-  const [playerScores, setPlayerScores] = useState<Record<string, number>>({});
+  // Game state
+  const [currentWordIndex, setCurrentWordIndex] = useState(0);
+  const [words, setWords] = useState<string[]>([]); // The 20 shared words
+  const [gameInitialized, setGameInitialized] = useState(false); // Track if game is properly initialized
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
+  const [validWords, setValidWords] = useState<string[]>([]);
+  const [wordleWords, setWordleWords] = useState<string[]>([]);
   
+
+  // Update local game over state based on room state
+  useEffect(() => {
+    if (roomGameOver) {
+      setGameOver(true);
+    }
+  }, [roomGameOver]);
+
+  // Update game initialization status
+  useEffect(() => {
+    if (status === 'in-progress' && words.length > 0 && players.length > 0) {
+      setGameInitialized(true);
+    } else {
+      setGameInitialized(false);
+    }
+  }, [status, words.length, players.length]);
+
 
   const [playerId] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -68,41 +96,98 @@ export default function RaceRoomPage() {
 
   // Try to join the room when component mounts
   useEffect(() => {
-    if (roomCode && playerId) {
+    let isCancelled = false; // Flag to track if component is unmounting
+    
+    if (roomCode && playerId && !isCancelled) {
       setIsJoining(true);
       setInitialLoad(true);
       console.log('Attempting to connect to room:', roomCode);
       // Try to get room info (this will work for both joining and if user is already in the room)
       getRoomInfo(roomCode, playerId).then((success) => {
-        if (!success) {
+        if (!isCancelled && !success) {
           // If getting room info failed, it might be because we need to join
           setError('Room does not exist or you do not have access to it.');
           setIsJoining(false);
           setInitialLoad(false);
-        } else {
+        } else if (!isCancelled) {
           setIsJoining(false);
           setInitialLoad(false);
           console.log('Successfully connected to room:', roomCode, 'Status:', status);
         }
       }).catch((error) => {
-        console.error('Error connecting to room:', error);
-        setError('Failed to connect to room. Please try again.');
-        setIsJoining(false);
-        setInitialLoad(false);
+        if (!isCancelled) {
+          // Check if the error is because player is not in the room or room was not found
+          if (error.message && (error.message.includes('Room not found') || error.message.includes('Player not in this room'))) {
+            // Don't show an error in this case, as it might be after the room has ended
+            console.log('Room not found or player not in room - possible after leaving room or game ended');
+          } else {
+            console.error('Error connecting to room:', error);
+            setError('Failed to connect to room. Please try again.');
+          }
+          setIsJoining(false);
+          setInitialLoad(false);
+        }
       });
     }
+    
+    // Cleanup function to set the flag when component unmounts
+    return () => {
+      isCancelled = true;
+    };
   }, [roomCode, playerId, getRoomInfo]); // Removed status from dependency array to avoid infinite loop
 
-  // Initialize player scores when players join the room
+
+
+  // Initialize game words when the game starts - use shared words from room
   useEffect(() => {
-    if (players.length > 0) {
-      const initialScores: Record<string, number> = {};
-      players.forEach(player => {
-        initialScores[player] = 0;
-      });
-      setPlayerScores(initialScores);
+    if (status === 'in-progress' && players.length > 0) {
+      // If no words have been generated yet, generate them and store in the room
+      if (sharedWords.length === 0) {
+        const generateAndStoreWords = async () => {
+          // Only the first player or a designated player should generate words
+          if (players[0] === playerId) { // Let the first player in the room generate words
+            const newWords = await getRandomWords(20);
+            
+            // Store the words in the room via API endpoint
+            if (roomCode) {
+              try {
+                const response = await fetch('/api/room/words', {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ 
+                    roomCode, 
+                    playerId, 
+                    words: newWords 
+                  }),
+                });
+
+                if (!response.ok) {
+                  console.error('Failed to store words in room');
+                }
+              } catch (error) {
+                console.error('Error storing words:', error);
+              }
+            }
+          }
+        };
+        
+        generateAndStoreWords();
+      } else {
+        // Use the shared words from the room provider
+        setWords(sharedWords);
+      }
+      
+      // Load valid words for validation if not already loaded
+      if (validWords.length === 0 || wordleWords.length === 0) {
+        getWordLists().then(wordLists => {
+          setValidWords(wordLists.validWords);
+          setWordleWords(wordLists.wordleWords);
+        });
+      }
     }
-  }, [players]);
+  }, [status, players.length, sharedWords, validWords.length, wordleWords.length, playerId, roomCode]);
 
   // Track when we first receive a non-default status from SSE to prevent flickering
   useEffect(() => {
@@ -114,16 +199,33 @@ export default function RaceRoomPage() {
 
 
 
-  // Update player score
-  const updatePlayerScore = (playerId: string, points: number) => {
-    setPlayerScores(prev => ({
-      ...prev,
-      [playerId]: (prev[playerId] || 0) + points
-    }));
+  // Update player score by sending to backend
+  const updatePlayerScore = async (playerId: string, points: number) => {
+    if (!roomCode) return;
+    
+    try {
+      const response = await fetch('/api/room/score', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          roomCode, 
+          playerId, 
+          points 
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to update score on server');
+      }
+    } catch (error) {
+      console.error('Error updating score:', error);
+    }
   };
 
   // Handle keyboard input for the Wordle grid
-  const handleKeyPress = (key: string) => {
+  const handleKeyPress = async (key: string) => {
     if (gameOver || status !== 'in-progress') return;
     
     if (key === 'Enter') {
@@ -132,38 +234,155 @@ export default function RaceRoomPage() {
         return;
       }
       
-      // Mark this row as revealed (in a multiplayer game, we might submit to server)
+      // Get the current word
+      const currentWord = board[currentRow].join('').toLowerCase();
+      
+      // Check if the word is valid
+      const isValid = await isValidWord(currentWord);
+      if (!isValid) {
+        // Show toast notification for invalid word
+        toast.error('INVALID WORD', {
+          description: 'TRY AGAIN',
+        });
+        return;
+      }
+      
+      // Check against the solution and get letter statuses
+      // Check if game is properly initialized before processing
+      if (!words || words.length === 0 || currentWordIndex >= words.length || currentWordIndex < 0) {
+        console.error(`Game not properly initialized: words length = ${words?.length || 0}, currentWordIndex = ${currentWordIndex}`);
+        return; // Exit early if game isn't properly initialized
+      }
+      
+      const solution = words[currentWordIndex];
+      // Add safety check to ensure solution exists before processing
+      if (!solution) {
+        console.error(`No solution found for word index ${currentWordIndex}, available words: ${words.length}`);
+        return; // Exit early if solution doesn't exist yet
+      }
+      
+      const letterStatuses = getLetterStatuses(currentWord, solution);
+      
+      // Mark this row as revealed with proper statuses
       const newRevealed = [...revealed];
-      newRevealed[currentRow] = Array(WORD_LENGTH).fill(true);
+      newRevealed[currentRow] = [...letterStatuses];
       setRevealed(newRevealed);
       
-      // Update key statuses based on this guess - for now we'll mark all as present/absent
-      // In a real game, we'd check against the actual solution
+      // Update key statuses based on the solution
       const newUsedKeys = {...usedKeys};
-      let correctLetters = 0;
-      board[currentRow].forEach((letter) => {
-        if (letter && !newUsedKeys[letter]) {
-          // In a real game, we'd determine if letter is correct, present, or absent
-          newUsedKeys[letter] = 'present'; // Placeholder logic
-          correctLetters++; // Count correct letters for scoring
+      board[currentRow].forEach((letter, index) => {
+        if (letter) {
+          const status = letterStatuses[index];
+          if (status) {  // Ensure status exists before processing
+            // Only update status if it's better than the current one
+            if (!newUsedKeys[letter] || 
+                (newUsedKeys[letter] === 'absent' && status !== 'absent') ||
+                (newUsedKeys[letter] === 'present' && status === 'correct')) {
+              newUsedKeys[letter] = status;
+            }
+          }
         }
       });
       setUsedKeys(newUsedKeys);
       
-      // Award points for correct letters
-      if (correctLetters > 0) {
-        updatePlayerScore(playerId, correctLetters);
-      }
-      
-      // Move to next row or end game
-      if (currentRow === MAX_ATTEMPTS - 1) {
-        // Game over - no more attempts
-        setGameOver(true);
-        setPlayerStats({
-          completed: false,
-          timeTaken: 0
-        });
+      // Check if the word was guessed correctly
+      if (currentWord === solution.toLowerCase()) {
+        // Calculate what the new score should be based on current state for win condition check
+        const currentScore = (scores[playerId] || 0) + 1;
+        
+        // Update player's score on backend
+        await updatePlayerScore(playerId, 1);
+        
+        if (currentScore >= 5) {
+          // Set game over state in the room
+          if (roomCode) {
+            try {
+              await fetch('/api/room/gameover', {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                  roomCode, 
+                  playerId,
+                  winner: playerId
+                }),
+              });
+            } catch (error) {
+              console.error('Error setting game over:', error);
+            }
+          }
+        } else {
+          // Show success notification
+          toast.success('CORRECT!', {
+            description: solution.toUpperCase(),
+          });
+          
+          // Move to next word
+          if (currentWordIndex < words.length - 1) {
+            setCurrentWordIndex(currentWordIndex + 1);
+            // Reset for the new word
+            resetCurrentRow();
+          } else {
+            // Game is over, all words have been completed
+            // This shouldn't happen in normal gameplay since it's a race to 5 points
+            // But if all words are done before anyone reaches 5, set game over
+            if (roomCode) {
+              try {
+                await fetch('/api/room/gameover', {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ 
+                    roomCode, 
+                    playerId,
+                    winner: null // No winner if time runs out
+                  }),
+                });
+              } catch (error) {
+                console.error('Error setting game over:', error);
+              }
+            }
+          }
+        }
+      } else if (currentRow === MAX_ATTEMPTS - 1) {
+        // Player has used all attempts for this word
+        if (solution) {
+          toast.error('THE WORD WAS', {
+            description: solution.toUpperCase(),
+          });
+        }
+        
+        // Move to next word
+        if (currentWordIndex < words.length - 1) {
+          setCurrentWordIndex(currentWordIndex + 1);
+          // Reset for the new word
+          resetCurrentRow();
+        } else {
+          // Game is over, all words attempted
+          // This shouldn't happen in normal gameplay since it's a race to 5 points
+          // But if all words are done before anyone reaches 5, set game over
+          if (roomCode) {
+            try {
+              await fetch('/api/room/gameover', {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                  roomCode, 
+                  playerId,
+                  winner: null // No winner if time runs out
+                }),
+              });
+            } catch (error) {
+              console.error('Error setting game over:', error);
+            }
+          }
+        }
       } else {
+        // Move to next row
         setCurrentRow(currentRow + 1);
         setCurrentCol(0);
       }
@@ -183,6 +402,21 @@ export default function RaceRoomPage() {
         setCurrentCol(currentCol + 1);
       }
     }
+  };
+
+  // Helper function to reset for a new word
+  const resetCurrentRow = () => {
+    const newBoard = [...board];
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      for (let j = 0; j < WORD_LENGTH; j++) {
+        newBoard[i][j] = '';
+      }
+    }
+    setBoard(newBoard);
+    setRevealed(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
+    setCurrentRow(0);
+    setCurrentCol(0);
+    setUsedKeys({});
   };
 
   // Handle physical keyboard events
@@ -225,18 +459,16 @@ export default function RaceRoomPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="space-y-2">
+                <div className="text-center">
                   <p>Establishing connection...</p>
                   {/* Placeholder for player indicators and scores during loading */}
-                  <div className="flex justify-between min-h-[50px] items-center">
+                  <div className="flex flex-col items-center space-y-1">
                     <div className="px-4 py-2 bg-secondary rounded-lg">
                       You
                     </div>
-                  </div>
-                  <div className="flex justify-between">
                     <div className="text-center">
                       <div className="text-sm text-muted-foreground">Score</div>
-                      <div className="text-lg font-semibold">{playerScores[playerId] || 0}</div>
+                      <div className="text-lg font-semibold">{scores[playerId] || 0}</div>
                     </div>
                   </div>
                 </div>
@@ -264,14 +496,14 @@ export default function RaceRoomPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <p className="text-lg">
+                <div className="text-center">
+                  <p className="mb-2 text-lg">
                     {status === 'waiting' 
                       ? `Waiting for another player... (${players.length}/2)` 
                       : 'Starting in'}
                   </p>
                   
-                  <div className="min-h-[120px] flex items-center justify-center">
+                  <div className="mb-4 min-h-[120px] flex items-center justify-center">
                     {status === 'countdown' && countdownRemaining !== null && countdownRemaining !== undefined ? (
                       <CountdownTimer 
                         remainingTime={countdownRemaining} 
@@ -280,28 +512,23 @@ export default function RaceRoomPage() {
                         }} 
                       />
                     ) : (
-                      <div className="text-6xl font-bold text-primary transition-opacity duration-100">--</div>
+                      <div className="text-6xl font-bold text-primary transition-opacity duration-100"></div>
                     )}
                   </div>
                   
                   {/* Consistent UI elements to prevent shuffling */}
-                  <div className="space-y-2">
+                  <div className="space-y-4">
                     <div className="flex justify-between min-h-[50px] items-center">
                       {players.map((player) => (
-                        <div key={player} className="px-4 py-2 bg-secondary rounded-lg">
-                          {player === playerId ? 'You' : 'Opponent'}
-                        </div>
-                      ))}
-                    </div>
-                    {/* Score display for both players */}
-                    <div className="flex justify-between">
-                      {players.map((player) => (
-                        <div 
-                          key={`score-${player}`} 
-                          className="text-center"
-                        >
-                          <div className="text-sm text-muted-foreground">Score</div>
-                          <div className="text-lg font-semibold">{playerScores[player] || 0}</div>
+                        <div key={player} className="flex flex-col items-center space-y-1">
+                          <div className="px-4 py-2 bg-secondary rounded-lg">
+                            {player === playerId ? 'You' : 'Opponent'}
+                          </div>
+                          {/* Score display for each player */}
+                          <div className="text-center">
+                            <div className="text-sm text-muted-foreground">Score</div>
+                            <div className="text-lg font-semibold">{scores[player] || 0}</div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -327,70 +554,76 @@ export default function RaceRoomPage() {
       <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
         <Header subtitle="Race Mode" />
         <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:py-12">
-          <div className="w-full max-w-2xl">
-            <Card className="border border-gray-700">
-              <CardHeader className="text-center">
-                <CardTitle className="text-2xl sm:text-3xl sr-only">Race Mode</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {gameOver ? (
+          {gameOver ? (
+            <div className="w-full max-w-2xl">
+              <Card className="border border-gray-700">
+                <CardContent className="space-y-6">
                   <div className="text-center py-8">
                     <h3 className="text-2xl font-bold mb-4">Game Over!</h3>
                     <p className="text-lg mb-6">
-                      {playerStats.completed 
-                        ? `You completed the word!` 
-                        : 'Game\'s up!'}
+                      {roomWinner === playerId 
+                        ? 'Congratulations! You reached 5 points first!' 
+                        : roomWinner 
+                          ? 'Game over! Opponent reached 5 points first.' 
+                          : 'Game\'s up!'}
                     </p>
                     <Button onClick={handleLeaveRoom}>Back to Lobby</Button>
                   </div>
-                ) : (
-                  <>
-                    {/* Consistent player display area to prevent shuffling */}
-                    <div className="flex justify-between min-h-[50px] items-center">
-                      {players.map((player) => (
-                        <div 
-                          key={player} 
-                          className={`px-4 py-2 rounded-lg ${
-                            player === localStorage.getItem('player-id') 
-                              ? 'bg-primary text-primary-foreground' 
-                              : 'bg-secondary'
-                          }`}
-                        >
-                          {player === localStorage.getItem('player-id') ? 'You' : 'Opponent'}
-                        </div>
-                      ))}
-                    </div>
-                    {/* Score display for both players */}
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <div className="w-full max-w-4xl">
+              <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 w-full h-full">
+                {/* Left column: Player info and scores */}
+                <div className="lg:w-1/3 flex justify-center items-center">
+                  <div className="max-w-xs w-full">
                     <div className="flex justify-between">
                       {players.map((player) => (
                         <div 
-                          key={`score-${player}`} 
-                          className="text-center"
+                          key={player} 
+                          className="flex flex-col items-center space-y-1"
                         >
-                          <div className="text-sm text-muted-foreground">Score</div>
-                          <div className="text-lg font-semibold">{playerScores[player] || 0}</div>
+                          <div 
+                            className={`px-4 py-2 rounded-lg ${
+                              player === localStorage.getItem('player-id') 
+                                ? 'bg-primary text-primary-foreground' 
+                                : 'bg-secondary'
+                            }`}
+                          >
+                            {player === localStorage.getItem('player-id') ? 'You' : 'Opponent'}
+                          </div>
+                          {/* Score display for each player */}
+                          <div className="text-center">
+                            <div className="text-sm text-muted-foreground">Score</div>
+                            <div className="text-lg font-semibold">{scores[player] || 0}</div>
+                          </div>
                         </div>
                       ))}
                     </div>
-                    
-                    <div className="flex flex-col items-center gap-6">
-                      <div className="w-full max-w-md">
-                        <WordleGrid 
-                          board={board} 
-                          currentRow={currentRow} 
-                          currentCol={currentCol} 
-                          revealed={revealed} 
-                        />
-                      </div>
-                      <div className="w-full">
-                        <Keyboard onKeyPress={handleKeyPress} usedKeys={usedKeys} />
-                      </div>
+                  </div>
+                </div>
+                
+                {/* Right column: Game grid and keyboard */}
+                <div className="lg:w-2/3 flex justify-center items-center">
+                  <div className="w-full max-w-md flex flex-col items-center">
+                    <div className="w-full -mt-2">
+                      <WordleGrid 
+                        board={board} 
+                        currentRow={currentRow} 
+                        currentCol={currentCol} 
+                        revealed={revealed} 
+                        solution={words[currentWordIndex]}
+                      />
                     </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                    <div className="w-full mt-2">
+                      <Keyboard onKeyPress={handleKeyPress} usedKeys={usedKeys} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
         <Footer />
       </div>
@@ -411,18 +644,16 @@ export default function RaceRoomPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-2">
+              <div className="text-center">
                 <p>Connecting to room...</p>
                 {/* Placeholder for player indicators and scores during connection */}
-                <div className="flex justify-between min-h-[50px] items-center">
+                <div className="flex flex-col items-center space-y-1">
                   <div className="px-4 py-2 bg-secondary rounded-lg">
                     You
                   </div>
-                </div>
-                <div className="flex justify-between">
                   <div className="text-center">
                     <div className="text-sm text-muted-foreground">Score</div>
-                    <div className="text-lg font-semibold">{playerScores[playerId] || 0}</div>
+                    <div className="text-lg font-semibold">{scores[playerId] || 0}</div>
                   </div>
                 </div>
               </div>

@@ -5,7 +5,38 @@ interface WordleGridProps {
   currentRow: number;
   currentCol: number;
   revealed: boolean[][];
-  solution?: string; // Optional for multiplayer - we won't show solution until game ends
+  solution?: string; // Current word solution for coloring letters
+}
+
+// Compare a guess to the solution and return status for each letter
+// Returns an array of statuses: 'correct', 'present', 'absent'
+function getLetterStatuses(guess: string, solution: string): ('correct' | 'present' | 'absent')[] {
+  const result: ('correct' | 'present' | 'absent')[] = Array(5).fill('absent');
+  const solutionLetters = solution.split('');
+  const guessLetters = guess.split('');
+
+  // First pass: mark correct letters
+  for (let i = 0; i < 5; i++) {
+    if (guessLetters[i] === solutionLetters[i]) {
+      result[i] = 'correct';
+      // Mark this letter in solution as used
+      solutionLetters[i] = '';
+    }
+  }
+
+  // Second pass: mark present letters
+  for (let i = 0; i < 5; i++) {
+    if (result[i] !== 'correct') {
+      const letterIndex = solutionLetters.indexOf(guessLetters[i]);
+      if (letterIndex !== -1) {
+        result[i] = 'present';
+        // Mark this letter in solution as used
+        solutionLetters[letterIndex] = '';
+      }
+    }
+  }
+
+  return result;
 }
 
 const WordleGrid: React.FC<WordleGridProps> = ({ 
@@ -15,24 +46,26 @@ const WordleGrid: React.FC<WordleGridProps> = ({
   revealed,
   solution
 }) => {
-  // Determine cell status based on current state and solution
-  const getCellStatus = (row: number, col: number): string => {
-    if (!revealed[row][col]) return '';
+  // Determine cell status based on the solution if solution is provided
+  const getSolutionAwareStatus = (row: number, col: number): string => {
+    const cellStatus = revealed[row][col];
     
-    const currentLetter = board[row][col];
-    if (!currentLetter) return '';
+    // If it's already a status string, return it
+    if (typeof cellStatus === 'string' && cellStatus !== 'true') {
+      return cellStatus;
+    }
     
+    // If it's false (not revealed yet), return empty string
+    if (!cellStatus || cellStatus === false) {
+      return '';
+    }
+    
+    // If it's true but not a specific status, return based on solution
     if (!solution) return 'submitted'; // If no solution provided, just mark as submitted
     
-    const solutionLetter = solution[col];
-    
-    if (currentLetter === solutionLetter) {
-      return 'correct';
-    } else if (solution.includes(currentLetter)) {
-      return 'present';
-    } else {
-      return 'absent';
-    }
+    // Fallback: calculate statuses based on the solution
+    const letterStatuses = getLetterStatuses(board[row].join(''), solution);
+    return letterStatuses[col] || 'submitted';
   };
 
   return (
@@ -43,7 +76,7 @@ const WordleGrid: React.FC<WordleGridProps> = ({
             <div
               key={`${rowIndex}-${colIndex}`}
               className={`grid-cell ${
-                getCellStatus(rowIndex, colIndex)
+                getSolutionAwareStatus(rowIndex, colIndex)
               } ${
                 rowIndex === currentRow && colIndex === currentCol && !revealed[rowIndex][colIndex] 
                   ? 'cell-input' 

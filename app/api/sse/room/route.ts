@@ -4,7 +4,7 @@ import { getRedisClient } from '@/lib/redis';
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const UPDATE_INTERVAL = 2000; // 2 seconds
+const UPDATE_INTERVAL = 2000; // 2 seconds - more frequent for better score updates
 
 export const dynamic = 'force-dynamic';
 
@@ -92,6 +92,10 @@ export async function GET(req: NextRequest) {
           let responseData = {
             roomCode,
             players: roomData.players,
+            scores: roomData.scores || {},
+            words: roomData.words || [],
+            gameOver: roomData.gameOver || false,
+            winner: roomData.winner || null,
             status: roomData.status,
             countdownStart: roomData.countdownStart,
             remainingCountdown,
@@ -141,7 +145,7 @@ export async function GET(req: NextRequest) {
       // Send initial room state
       sendUpdate();
 
-      // Send updates at intervals
+      // Send updates at intervals - more frequent for better score sync
       const updateInterval = setInterval(sendUpdate, UPDATE_INTERVAL);
 
       // Send heartbeat to keep connection alive

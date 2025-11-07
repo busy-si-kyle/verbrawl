@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { RealtimePlayerCountProvider } from "@/components/realtime-player-count-provider";
 import { SessionTracker } from "@/components/session-tracker";
 import { RoomProvider } from "@/components/room-provider";
+import ToastProvider from "@/components/toast-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,14 +37,15 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <RoomProvider>
-          <RealtimePlayerCountProvider>
-            <ThemeProvider>
-              {children}
-              <SessionTracker />
-            </ThemeProvider>
-          </RealtimePlayerCountProvider>
-        </RoomProvider>
+          <RoomProvider>
+            <RealtimePlayerCountProvider>
+              <ThemeProvider>
+                {children}
+                <SessionTracker />
+              </ThemeProvider>
+            </RealtimePlayerCountProvider>
+          </RoomProvider>
+          <ToastProvider />
       </body>
     </html>
   );

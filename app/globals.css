@@ -126,7 +126,7 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
-  margin: 20px auto; /* Auto margins center the element */
+  margin: 4px auto; /* Reduced margin to decrease the gap */
   width: fit-content; /* Ensure grid doesn't stretch */
   align-self: center; /* Also try align-self for flex contexts */
 }

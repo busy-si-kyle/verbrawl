@@ -48,6 +48,10 @@ export async function POST(request: NextRequest) {
     // Create the room with the first player
     const roomData = {
       players: [playerId],
+      scores: { [playerId]: 0 }, // Initialize scores for the first player
+      words: [], // Will be populated when game starts
+      gameOver: false, // Track if game has ended
+      winner: null, // Track the winner when game ends
       status: 'waiting', // waiting, countdown, in-progress
       createdAt: Date.now(),
       countdownStart: null,
@@ -127,6 +131,14 @@ export async function PUT(request: NextRequest) {
     // Add player to room
     roomData.players.push(playerId);
     
+    // Initialize score for the new player if scores object exists
+    if (roomData.scores) {
+      roomData.scores[playerId] = 0;
+    } else {
+      // Fallback: initialize scores object if it doesn't exist
+      roomData.scores = { [playerId]: 0 };
+    }
+    
     // If this is the second player, start the countdown
     if (roomData.players.length === 2) {
       roomData.status = 'countdown';
@@ -143,6 +155,10 @@ export async function PUT(request: NextRequest) {
     return new Response(JSON.stringify({ 
       roomCode,
       players: roomData.players,
+      scores: roomData.scores || {},
+      words: roomData.words || [],
+      gameOver: roomData.gameOver || false,
+      winner: roomData.winner || null,
       status: roomData.status,
       countdownStart: roomData.countdownStart,
       message: roomData.players.length === 2 ? 'Countdown started!' : 'Joined room successfully',
@@ -201,6 +217,10 @@ export async function GET(request: NextRequest) {
     return new Response(JSON.stringify({ 
       roomCode,
       players: roomData.players,
+      scores: roomData.scores || {},
+      words: roomData.words || [],
+      gameOver: roomData.gameOver || false,
+      winner: roomData.winner || null,
       status: roomData.status,
       countdownStart: roomData.countdownStart,
     }), {

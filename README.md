@@ -1,5 +1,66 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Toast Component Implementation
+
+This project uses Sonner for toast notifications:
+
+### Sonner Toast (Current Implementation)
+- Located in `components/ui/sonner.tsx`
+- Modern toast library with better performance
+- Officially recommended by shadcn/ui
+
+#### Usage:
+1. The Toaster component is already integrated in your root layout (`app/layout.tsx`):
+```tsx
+import { Toaster } from "@/components/ui/sonner";
+
+// In your RootLayout component:
+<RoomProvider>
+  <RealtimePlayerCountProvider>
+    <ThemeProvider>
+      {children}
+      <SessionTracker />
+    </ThemeProvider>
+  </RealtimePlayerCountProvider>
+</RoomProvider>
+<Toaster />
+```
+
+2. Use in your components:
+```tsx
+import { toast } from 'sonner';
+
+const MyComponent = () => {
+  return (
+    <button onClick={() => toast('Event has been created')}>
+      Show Toast
+    </button>
+  );
+};
+```
+
+#### Advanced Usage:
+```tsx
+// Success toast
+toast.success('Success message', {
+  description: 'Operation completed successfully',
+});
+
+// Error toast
+toast.error('Error message', {
+  description: 'Something went wrong',
+});
+
+// With action button
+toast('Event created', {
+  description: 'Your event has been created',
+  action: {
+    label: 'Undo',
+    onClick: () => console.log('Undo'),
+  },
+});
+```
+
 ## Getting Started
 
 First, run the development server:

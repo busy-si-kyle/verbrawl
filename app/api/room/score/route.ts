@@ -4,19 +4,18 @@ import { getRedisClient } from '@/lib/redis';
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
 
-export async function POST(request: NextRequest) {
+export async function PUT(request: NextRequest) {
   const redis = getRedisClient();
   
-  // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
   }
 
   try {
-    const { roomCode, playerId } = await request.json();
+    const { roomCode, playerId, points } = await request.json();
     
-    if (!roomCode || !playerId) {
-      return new Response(JSON.stringify({ error: 'Room code and player ID are required' }), {
+    if (!roomCode || !playerId || points === undefined || points === null) {
+      return new Response(JSON.stringify({ error: 'Room code, player ID, and points are required' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -34,44 +33,37 @@ export async function POST(request: NextRequest) {
 
     const roomData = JSON.parse(roomDataString);
     
-    // Find and remove the player from the room
-    const playerIndex = roomData.players.indexOf(playerId);
-    if (playerIndex === -1) {
+    // Check if player is in the room
+    if (!roomData.players.includes(playerId)) {
       return new Response(JSON.stringify({ error: 'Player not in this room' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // Remove player from the room
-    roomData.players.splice(playerIndex, 1);
-    
-    // Remove player's score if scores exist
-    if (roomData.scores) {
-      delete roomData.scores[playerId];
+    // Initialize scores if not existing
+    if (!roomData.scores) {
+      roomData.scores = {};
     }
+
+    // Update player's score
+    roomData.scores[playerId] = (roomData.scores[playerId] || 0) + points;
     
-    // If no players left, delete the room
-    if (roomData.players.length === 0) {
-      await redis.del(`${ROOM_PREFIX}${roomCode}`);
-      await redis.sRem('active_rooms', roomCode);
-    } else {
-      // Otherwise, update the room data in Redis
-      await redis.setEx(`${ROOM_PREFIX}${roomCode}`, 60 * 15, JSON.stringify(roomData));
-    }
-    
-    // Remove player-to-room mapping
-    await redis.del(`${PLAYER_PREFIX}${playerId}`);
+    // Update room data in Redis
+    await redis.setEx(`${ROOM_PREFIX}${roomCode}`, 60 * 15, JSON.stringify(roomData));
     
     return new Response(JSON.stringify({ 
-      message: 'Successfully left room',
-      playersLeft: roomData.players.length
+      roomCode,
+      playerId,
+      newScore: roomData.scores[playerId],
+      scores: roomData.scores,
+      message: 'Score updated successfully'
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error leaving room:', error);
+    console.error('Error updating score:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

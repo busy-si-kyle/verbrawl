@@ -6,6 +6,10 @@ interface RoomContextType {
   roomCode: string | null;
   status: 'none' | 'waiting' | 'countdown' | 'in-progress';
   players: string[];
+  scores: Record<string, number>;
+  words: string[];
+  gameOver: boolean;
+  winner: string | null;
   countdownRemaining: number | null;
   createRoom: (playerId: string) => Promise<boolean>;
   joinRoom: (roomCode: string, playerId: string) => Promise<boolean>;
@@ -21,6 +25,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [status, setStatus] = useState<'none' | 'waiting' | 'countdown' | 'in-progress'>('none');
   const [players, setPlayers] = useState<string[]>([]);
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const [words, setWords] = useState<string[]>([]);
+  const [gameOver, setGameOver] = useState<boolean>(false);
+  const [winner, setWinner] = useState<string | null>(null);
   const [countdownRemaining, setCountdownRemaining] = useState<number | null>(null);
   const [serverCountdownStart, setServerCountdownStart] = useState<number | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
@@ -52,6 +60,18 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         const data = JSON.parse(event.data);
         setRoomCode(data.roomCode);
         setPlayers(data.players);
+        if (data.scores) {
+          setScores(data.scores);
+        }
+        if (data.words) {
+          setWords(data.words);
+        }
+        if ('gameOver' in data) {
+          setGameOver(data.gameOver);
+        }
+        if ('winner' in data) {
+          setWinner(data.winner);
+        }
         setStatus(data.status as 'none' | 'waiting' | 'countdown' | 'in-progress');
         
         // Handle countdown state with server sync
@@ -199,7 +219,13 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         setRoomCode(data.roomCode);
         setStatus(data.status);
-        setPlayers([playerId]);
+        setPlayers(data.players || [playerId]);
+        // Set initial scores from the API response
+        setScores(data.scores || { [playerId]: 0 });
+        // Set initial words and game state
+        setWords(data.words || []);
+        setGameOver(data.gameOver || false);
+        setWinner(data.winner || null);
         connectToRoomUpdates(data.roomCode, playerId);
         return true;
       } else {
@@ -230,6 +256,11 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setRoomCode(data.roomCode);
         setStatus(data.status);
         setPlayers(data.players);
+        // Set scores, words, and game state from the API response
+        setScores(data.scores || {});
+        setWords(data.words || []);
+        setGameOver(data.gameOver || false);
+        setWinner(data.winner || null);
         setCountdownRemaining(data.status === 'countdown' ? (data.remainingCountdown || null) : null);
         setServerCountdownStart(data.countdownStart || null);
         connectToRoomUpdates(data.roomCode, playerId);
@@ -258,6 +289,11 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setRoomCode(data.roomCode);
         setStatus(data.status);
         setPlayers(data.players);
+        // Set scores, words, and game state from the API response
+        setScores(data.scores || {});
+        setWords(data.words || []);
+        setGameOver(data.gameOver || false);
+        setWinner(data.winner || null);
         setCountdownRemaining(data.status === 'countdown' ? (data.remainingCountdown || null) : null);
         setServerCountdownStart(data.countdownStart || null);
         connectToRoomUpdates(data.roomCode, playerId);
@@ -295,6 +331,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setRoomCode(null);
     setStatus('none');
     setPlayers([]);
+    setScores({}); // Reset scores when leaving room
+    setWords([]); // Reset words when leaving room
+    setGameOver(false); // Reset game over state when leaving room
+    setWinner(null); // Reset winner when leaving room
     setCountdownRemaining(null);
     setEventSource(null);
   }, [eventSource, roomCode, playerId]);
@@ -307,6 +347,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setRoomCode(null);
     setStatus('none');
     setPlayers([]);
+    setScores({}); // Reset scores when resetting room
+    setWords([]); // Reset words when resetting room
+    setGameOver(false); // Reset game over state when resetting room
+    setWinner(null); // Reset winner when resetting room
     setCountdownRemaining(null);
     setServerCountdownStart(null);
     setEventSource(null);
@@ -330,6 +374,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     roomCode,
     status,
     players,
+    scores,
+    words,
+    gameOver,
+    winner,
     countdownRemaining,
     createRoom,
     joinRoom,
