@@ -9,15 +9,12 @@ export default function Home() {
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
       <Header />
-      <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:py-12">
+      <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
         <div className="w-full max-w-4xl space-y-10 sm:space-y-12">
           <div className="text-center space-y-4">
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
               Choose Your Game Mode
             </h2>
-            <p className="text-muted-foreground max-w-md mx-auto">
-              Select a mode below to start playing Verbrawl and challenge your vocabulary skills
-            </p>
           </div>
           
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">

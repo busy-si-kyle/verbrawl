@@ -1,27 +1,63 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CountdownTimer } from '@/components/countdown-timer';
 import { Header } from '@/components/header';
 import { Footer } from '@/components/footer';
 import { toast } from 'sonner';
 import { MAX_ATTEMPTS, WORD_LENGTH } from '@/components/constants';
 import { isValidWord, getRandomWords } from '@/lib/word-utils';
-import { Check, RotateCcw, Clock } from 'lucide-react';
+import Keyboard from '@/components/keyboard';
+import WordleGrid from '@/components/wordle-grid';
+import { Clock, RotateCcw } from 'lucide-react';
 
 export default function TimeLimitPage() {
   const [targetWord, setTargetWord] = useState('');
-  const [guesses, setGuesses] = useState<string[]>(Array(MAX_ATTEMPTS).fill(''));
-  const [currentGuess, setCurrentGuess] = useState('');
-  const [currentAttempt, setCurrentAttempt] = useState(0);
+  const [board, setBoard] = useState<string[][]>(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill('')));
+  const [currentRow, setCurrentRow] = useState(0);
+  const [currentCol, setCurrentCol] = useState(0);
+  const [score, setScore] = useState(0); // Track completed words
   const [gameStatus, setGameStatus] = useState<'playing' | 'won' | 'lost' | 'time-up'>('playing');
   const [remainingTime, setRemainingTime] = useState(120000); // 2 minutes in milliseconds
   const [timeUpHandled, setTimeUpHandled] = useState(false);
+  const [timerStarted, setTimerStarted] = useState(false); // New state to track if timer has started
+  const [shouldStartTimer, setShouldStartTimer] = useState(false); // Flag to trigger timer start
+  const [revealed, setRevealed] = useState<boolean[][]>(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
+  const [usedKeys, setUsedKeys] = useState<Record<string, 'correct' | 'present' | 'absent'>>({});
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Use ref to store timer ID to properly clear it
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const restartButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Add keyboard event listener for physical keyboard support
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (gameStatus !== 'playing' || currentRow >= MAX_ATTEMPTS) return;
+
+      const key = event.key.toUpperCase();
+
+      // Handle Enter key
+      if (key === 'ENTER' || key === 'RETURN') {
+        event.preventDefault();
+        handleKeyPress('ENTER');
+      } 
+      // Handle Backspace key
+      else if (key === 'BACKSPACE') {
+        event.preventDefault();
+        handleKeyPress('BACKSPACE');
+      } 
+      // Handle letter keys
+      else if (key.length === 1 && /^[A-Z]$/i.test(key)) { // Only letter keys
+        event.preventDefault();
+        handleKeyPress(key);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [gameStatus, currentRow, currentCol, targetWord, board, revealed, usedKeys]);
 
   // Initialize the game
   useEffect(() => {
@@ -39,85 +75,129 @@ export default function TimeLimitPage() {
     initializeGame();
   }, []);
 
-  // Handle timer countdown
+  // Handle timer countdown - only start after first valid guess
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    
-    if (gameStatus === 'playing' && remainingTime > 0 && !timeUpHandled) {
-      timer = setTimeout(() => {
+    // Clear any existing timer when dependencies change
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    // Only set up timer if all conditions are met
+    if (gameStatus === 'playing' && !timeUpHandled && timerStarted && remainingTime > 0) {
+      timerRef.current = setInterval(() => {
         setRemainingTime(prev => {
-          const newTime = prev - 100;
+          const newTime = Math.max(0, prev - 100); // Ensure it doesn't go below 0
           if (newTime <= 0) {
             handleTimeUp();
-            return 0;
           }
           return newTime;
         });
       }, 100);
     }
 
+    // Cleanup interval on unmount or when dependencies change
     return () => {
-      if (timer) clearTimeout(timer);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
-  }, [gameStatus, remainingTime, timeUpHandled]);
+  }, [gameStatus, timeUpHandled, timerStarted]); // Don't include remainingTime in deps to avoid constant restarts
 
   const handleTimeUp = () => {
     if (!timeUpHandled) {
       setGameStatus('time-up');
       setTimeUpHandled(true);
       toast.info('Time is up!', {
-        description: 'You ran out of time. Game over!',
+        description: `Game over! You solved ${score} words.`,
       });
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.toUpperCase();
-    if (value.length <= WORD_LENGTH) {
-      setCurrentGuess(value);
-    }
-  };
+  const handleKeyPress = async (key: string) => {
+    if (gameStatus !== 'playing' || currentRow >= MAX_ATTEMPTS) return;
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      submitGuess();
-    } else if (e.key === 'Backspace' && currentGuess.length === 0 && currentAttempt > 0) {
-      // Allow going back to previous guess if current guess is empty
-      setCurrentAttempt(prev => Math.max(0, prev - 1));
-      const prevGuess = guesses[currentAttempt - 1] || '';
-      setCurrentGuess(prevGuess);
+    if (key === 'ENTER') {
+      await submitGuess();
+    } else if (key === 'BACKSPACE') {
+      if (currentCol > 0) {
+        const newBoard = [...board];
+        newBoard[currentRow][currentCol - 1] = '';
+        setBoard(newBoard);
+        setCurrentCol(prev => Math.max(0, prev - 1));
+      }
+    } else if (key.match(/^[A-Z]$/)) {
+      if (currentCol < WORD_LENGTH) {
+        const newBoard = [...board];
+        newBoard[currentRow][currentCol] = key;
+        setBoard(newBoard);
+        setCurrentCol(prev => prev + 1);
+      }
     }
   };
 
   const submitGuess = async () => {
-    if (currentGuess.length !== WORD_LENGTH) {
-      toast.error('Word must be 5 letters long');
+    if (currentCol !== WORD_LENGTH) {
+      toast.error('Not enough letters');
       return;
     }
 
+    const currentWord = board[currentRow].join('').toLowerCase();
+    
     try {
-      if (!await isValidWord(currentGuess)) {
-        toast.error(`${currentGuess} is not a valid word`);
+      if (!await isValidWord(currentWord)) {
+        toast.error('Not in word list');
         return;
       }
 
-      const newGuesses = [...guesses];
-      newGuesses[currentAttempt] = currentGuess;
-      setGuesses(newGuesses);
+      // Start the timer on the first valid guess
+      if (!timerStarted) {
+        setTimerStarted(true);
+        setShouldStartTimer(true); // This will trigger the timer to start
+      }
 
-      if (currentGuess === targetWord) {
-        setGameStatus('won');
-        toast.success('Congratulations!', {
-          description: `You solved the word: ${targetWord}`,
+      // Update revealed status for the current row
+      const newRevealed = [...revealed];
+      newRevealed[currentRow] = Array(WORD_LENGTH).fill(true);
+      setRevealed(newRevealed);
+
+      // Update keyboard status
+      const wordStatuses = getLetterStatuses(currentWord.toUpperCase(), targetWord);
+      const newUsedKeys = { ...usedKeys };
+      for (let i = 0; i < WORD_LENGTH; i++) {
+        const letter = currentWord[i].toUpperCase();
+        const status = wordStatuses[i];
+        
+        if (!newUsedKeys[letter] || 
+            (newUsedKeys[letter] === 'absent' && status !== 'absent') ||
+            (newUsedKeys[letter] === 'present' && status === 'correct')) {
+          newUsedKeys[letter] = status;
+        }
+      }
+      setUsedKeys(newUsedKeys);
+
+      if (currentWord.toUpperCase() === targetWord) {
+        // Player completed the word successfully
+        setScore(prev => prev + 1);
+        toast.success('Word completed!', {
+          description: `You solved: ${targetWord}`,
         });
-      } else if (currentAttempt === MAX_ATTEMPTS - 1) {
-        setGameStatus('lost');
-        toast.error('Game over!', {
+        
+        // Move to the next word immediately
+        await loadNextWord();
+      } else if (currentRow === MAX_ATTEMPTS - 1) {
+        // Player used all attempts
+        toast.error('No more guesses', {
           description: `The word was: ${targetWord}`,
         });
+        
+        // Move to the next word immediately
+        await loadNextWord();
       } else {
-        setCurrentAttempt(prev => prev + 1);
-        setCurrentGuess('');
+        // Move to next row
+        setCurrentRow(prev => prev + 1);
+        setCurrentCol(0);
       }
     } catch (error) {
       console.error('Error validating guess:', error);
@@ -125,19 +205,85 @@ export default function TimeLimitPage() {
     }
   };
 
-  const resetGame = async () => {
+  // Load the next word after completing the current one
+  const loadNextWord = async () => {
     try {
       const words = await getRandomWords(1);
       const word = words[0];
       setTargetWord(word.toUpperCase());
-      setGuesses(Array(MAX_ATTEMPTS).fill(''));
-      setCurrentGuess('');
-      setCurrentAttempt(0);
+      // Reset board and game state for new word
+      setBoard(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill('')));
+      setCurrentRow(0);
+      setCurrentCol(0);
+      setRevealed(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
+      // Keep used keys to show progress across words
+    } catch (error) {
+      console.error('Error loading next word:', error);
+      toast.error('Failed to load next word. Please try again.');
+    }
+  };
+
+  // Compare a guess to the solution and return status for each letter
+  // Returns an array of statuses: 'correct', 'present', 'absent'
+  function getLetterStatuses(guess: string, solution: string): ('correct' | 'present' | 'absent')[] {
+    const result: ('correct' | 'present' | 'absent')[] = Array(5).fill('absent');
+    const solutionLetters = solution.split('');
+    const guessLetters = guess.split('');
+
+    // First pass: mark correct letters
+    for (let i = 0; i < 5; i++) {
+      if (guessLetters[i] === solutionLetters[i]) {
+        result[i] = 'correct';
+        // Mark this letter in solution as used
+        solutionLetters[i] = '';
+      }
+    }
+
+    // Second pass: mark present letters
+    for (let i = 0; i < 5; i++) {
+      if (result[i] !== 'correct') {
+        const letterIndex = solutionLetters.indexOf(guessLetters[i]);
+        if (letterIndex !== -1) {
+          result[i] = 'present';
+          // Mark this letter in solution as used
+          solutionLetters[letterIndex] = '';
+        }
+      }
+    }
+
+    return result;
+  }
+
+  const resetGame = async () => {
+    // Clear any existing timer BEFORE resetting state
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    
+    try {
+      // Get a new word
+      const words = await getRandomWords(1);
+      const word = words[0];
+      
+      // Reset game state - using a functional approach to ensure proper sequence
+      setTargetWord(word.toUpperCase());
+      setBoard(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill('')));
+      setCurrentRow(0);
+      setCurrentCol(0);
+      setScore(0); // Reset score
       setGameStatus('playing');
-      setRemainingTime(120000); // Reset to 2 minutes
       setTimeUpHandled(false);
-      if (inputRef.current) {
-        inputRef.current.focus();
+      setTimerStarted(false); // Reset timer started state
+      setShouldStartTimer(false); // Reset timer start flag
+      setRevealed(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
+      setUsedKeys({});
+      // Most importantly, reset remaining time to full 2 minutes AFTER clearing timer
+      setRemainingTime(120000); // Reset to 2 minutes
+      
+      // Remove focus from the restart button to prevent keyboard issues
+      if (restartButtonRef.current) {
+        restartButtonRef.current.blur();
       }
     } catch (error) {
       console.error('Error resetting game:', error);
@@ -145,108 +291,79 @@ export default function TimeLimitPage() {
     }
   };
 
-  const getTileColor = (guess: string, position: number) => {
-    if (!guess) return 'bg-gray-800 border-gray-700';
-    
-    const letter = guess[position];
-    if (!letter) return 'bg-gray-800 border-gray-700';
-    
-    if (letter === targetWord[position]) return 'bg-green-500 border-green-500';
-    if (targetWord.includes(letter)) return 'bg-yellow-500 border-yellow-500';
-    return 'bg-gray-700 border-gray-600';
-  };
+
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
       <Header />
-      <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:py-12">
-        <div className="w-full max-w-lg space-y-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">Time Limit Mode</h1>
-            <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
-              <CountdownTimer 
-                remainingTime={remainingTime} 
-                onComplete={handleTimeUp} 
+      <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
+        <div className="w-full max-w-4xl">
+          {/* Responsive layout: side-by-side on desktop, stacked on mobile */}
+          <div className="flex flex-col md:flex-row gap-6 h-full">
+            {/* Left column: Game info (score, timer, restart) */}
+            <div className="md:w-1/3 flex flex-col justify-center">
+              <div className="flex flex-col gap-4 w-full">
+                {/* Score and timer on one line */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Score</span>
+                    <span className="text-lg font-bold">{score}</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    <CountdownTimer 
+                      remainingTime={remainingTime} 
+                      onComplete={handleTimeUp} 
+                      timerStarted={timerStarted}
+                      showInMinutes={true}
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex justify-center">
+                  <button
+                    ref={restartButtonRef}
+                    onClick={resetGame}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition-colors"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Restart
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Right column: Wordle grid and keyboard */}
+            <div className="md:w-2/3 flex flex-col gap-4">
+              {/* Word grid using the WordleGrid component */}
+              <WordleGrid 
+                board={board}
+                currentRow={currentRow}
+                currentCol={currentCol}
+                revealed={revealed.map((row, i) => 
+                  row.map((isRevealed, j) => {
+                    if (isRevealed && targetWord) {
+                      const statuses = getLetterStatuses(board[i].join('').toUpperCase(), targetWord);
+                      return statuses[j];
+                    }
+                    return isRevealed;
+                  })
+                )}
+                solution={targetWord}
+              />
+
+              {/* Keyboard */}
+              <Keyboard 
+                usedKeys={usedKeys} 
+                onKeyPress={(key) => {
+                  if (gameStatus === 'playing') {
+                    handleKeyPress(key);
+                  }
+                }}
               />
             </div>
           </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-center">
-                {gameStatus === 'won' && '🎉 You Won!'}
-                {gameStatus === 'lost' && 'Game Over!'}
-                {gameStatus === 'time-up' && 'Time Up!'}
-                {gameStatus === 'playing' && 'Enter a 5-letter word'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Word grid */}
-              <div className="grid grid-cols-5 gap-2">
-                {Array.from({ length: MAX_ATTEMPTS }).map((_, rowIdx) => (
-                  <div key={rowIdx} className="grid grid-cols-5 gap-2">
-                    {Array.from({ length: WORD_LENGTH }).map((_, colIdx) => {
-                      const guess = guesses[rowIdx];
-                      return (
-                        <div
-                          key={colIdx}
-                          className={`flex h-14 w-14 items-center justify-center rounded border-2 text-xl font-bold uppercase transition-colors
-                            ${getTileColor(guess, colIdx)}`}
-                        >
-                          {guess?.[colIdx] || ''}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-
-              {/* Input area */}
-              <div className="flex flex-col items-center gap-4">
-                {gameStatus === 'playing' && (
-                  <div className="flex gap-2 w-full max-w-xs">
-                    <Input
-                      ref={inputRef}
-                      value={currentGuess}
-                      onChange={handleInputChange}
-                      onKeyDown={handleKeyDown}
-                      maxLength={WORD_LENGTH}
-                      className="text-center text-xl uppercase flex-1"
-                      placeholder={`Guess #${currentAttempt + 1}`}
-                      autoFocus
-                    />
-                    <Button onClick={submitGuess} disabled={currentGuess.length !== WORD_LENGTH}>
-                      <Check className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    onClick={resetGame}
-                    className="flex items-center gap-2"
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                    New Game
-                  </Button>
-                </div>
-              </div>
-
-              {/* Game status messages */}
-              {gameStatus !== 'playing' && (
-                <div className="text-center py-4">
-                  <p className="text-lg font-semibold">
-                    {gameStatus === 'won' && 'Congratulations! You guessed the word!'}
-                    {gameStatus === 'lost' && `The word was: ${targetWord}`}
-                    {gameStatus === 'time-up' && `The word was: ${targetWord}`}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
       </main>
       <Footer />

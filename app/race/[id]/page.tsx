@@ -450,7 +450,7 @@ export default function RaceRoomPage() {
     return (
       <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
         <Header subtitle="Race Mode" />
-        <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:py-12">
+        <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
           <div className="w-full max-w-2xl">
             <Card className="border border-gray-700">
               <CardHeader className="text-center">
@@ -487,7 +487,7 @@ export default function RaceRoomPage() {
     return (
       <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
         <Header subtitle="Race Mode" />
-        <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:py-12">
+        <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
           <div className="w-full max-w-2xl">
             <Card className="border border-gray-700">
               <CardHeader className="text-center">
@@ -501,7 +501,7 @@ export default function RaceRoomPage() {
                   <p className="mb-2 text-lg">
                     {status === 'waiting' 
                       ? `Waiting for another player... (${players.length}/2)` 
-                      : 'Starting soon! Get ready!'}
+                      : 'Starting soon!'}
                   </p>
                   
                   <div className="mb-4 min-h-[120px] flex items-center justify-center">
@@ -551,7 +551,7 @@ export default function RaceRoomPage() {
     return (
       <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
         <Header subtitle="Race Mode" />
-        <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:py-12">
+        <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
           {gameOver ? (
             <div className="w-full max-w-2xl">
               <Card className="border border-gray-700">
@@ -632,7 +632,7 @@ export default function RaceRoomPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
       <Header subtitle="Race Mode" />
-      <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:py-12">
+      <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
         <div className="w-full max-w-2xl">
           <Card className="border border-gray-700">
             <CardHeader className="text-center">

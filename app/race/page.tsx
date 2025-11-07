@@ -103,7 +103,7 @@ export default function RaceModePage() {
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
       <Header />
-      <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:py-12">
+      <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
         <div className="w-full max-w-2xl">
           <Card className="border border-gray-700">
             <CardHeader className="text-center">

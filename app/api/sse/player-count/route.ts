@@ -20,9 +20,14 @@ export async function GET(req: NextRequest) {
     start(controller) {
       const encoder = new TextEncoder();
       
+      let isClosed = false;
+      
       // Function to send player count update
       const sendUpdate = async () => {
         try {
+          // Don't send updates if connection is already closed
+          if (isClosed) return;
+          
           const playerCount = await redis.sCard(ACTIVE_SESSIONS_SET);
           const data = {
             playerCount,
@@ -46,18 +51,23 @@ export async function GET(req: NextRequest) {
       // Send heartbeat to keep connection alive
       const heartbeatInterval = setInterval(() => {
         try {
+          // Don't send heartbeat if connection is already closed
+          if (isClosed) return;
+          
           controller.enqueue(encoder.encode(`: heartbeat\n\n`));
         } catch (error) {
           console.error('Error sending heartbeat:', error);
-          clearInterval(heartbeatInterval);
         }
       }, HEARTBEAT_INTERVAL);
 
       // Cleanup on connection close
       req.signal.addEventListener('abort', () => {
-        clearInterval(updateInterval);
-        clearInterval(heartbeatInterval);
-        controller.close();
+        if (!isClosed) {
+          isClosed = true;
+          clearInterval(updateInterval);
+          clearInterval(heartbeatInterval);
+          controller.close();
+        }
       });
     },
   });

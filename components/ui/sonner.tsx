@@ -22,6 +22,7 @@ const SonnerToaster = ({
           actionButton: 'group-[.toast]:bg-gray-700 group-[.toaster]:text-gray-50',
           cancelButton: 'group-[.toast]:bg-gray-800 group-[.toaster]:text-gray-300',
         },
+        duration: 1500, // 1.5 seconds for all toasts
       }}
       {...props}
     />
