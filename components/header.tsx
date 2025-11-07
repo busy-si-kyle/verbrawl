@@ -43,7 +43,7 @@ export function Header({ subtitle }: HeaderProps) {
             </DialogHeader>
             <div className="space-y-2">
               <p>Made by Busy Potato.</p>
-              <p>Inspired by Ottomated's <a href="https://squabble.me" className="underline hover:no-underline" target="_blank" rel="noopener noreferrer">Squabble</a>.</p>
+              <p>Inspired by Ottomated&#39;s <a href="https://squabble.me" className="underline hover:no-underline" target="_blank" rel="noopener noreferrer">Squabble</a>.</p>
             </div>
           </DialogContent>
         </Dialog>

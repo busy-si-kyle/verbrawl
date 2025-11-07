@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
 
 const ROOM_PREFIX = 'room:';
-const PLAYER_PREFIX = 'player:';
 
 export async function PUT(request: NextRequest) {
   const redis = getRedisClient();

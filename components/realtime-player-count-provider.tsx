@@ -1,7 +1,7 @@
 // components/realtime-player-count-provider.tsx
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from 'react';
 
 interface RealtimePlayerCountContextType {
   count: number;
@@ -16,8 +16,12 @@ const RealtimePlayerCountContext = createContext<RealtimePlayerCountContextType>
 export function RealtimePlayerCountProvider({ children }: { children: ReactNode }) {
   const [playerCount, setPlayerCount] = useState(0);
   const [status, setStatus] = useState<RealtimePlayerCountContextType['status']>('connecting');
+  
+  // Ref to hold the connection function to avoid closure issues
+  const connectRef = useRef<(() => () => void) | null>(null);
 
-  const connect = useCallback(() => {
+  // Define the connection function
+  const createConnection = useCallback((): (() => void) => {
     setStatus('connecting');
     
     const eventSource = new EventSource('/api/sse/player-count');
@@ -40,25 +44,34 @@ export function RealtimePlayerCountProvider({ children }: { children: ReactNode 
       setStatus('disconnected');
       eventSource.close();
       
-      // Attempt to reconnect after a delay
+      // Attempt to reconnect after a delay using the ref
       setTimeout(() => {
-        connect();
+        if (connectRef.current) {
+          connectRef.current();
+        }
       }, 5000);
     };
 
-    // Clean up function
+    // Return clean up function
     return () => {
       eventSource.close();
     };
   }, []);
 
+  // Update ref whenever createConnection changes
   useEffect(() => {
-    const cleanup = connect();
-    
-    return () => {
-      cleanup && cleanup();
-    };
-  }, [connect]);
+    connectRef.current = createConnection;
+  }, [createConnection]);
+
+  useEffect(() => {
+    if (connectRef.current) {
+      const cleanup = connectRef.current();
+      
+      return () => {
+        cleanup?.();
+      };
+    }
+  }, []);
 
   return (
     <RealtimePlayerCountContext.Provider value={{ count: playerCount, status }}>

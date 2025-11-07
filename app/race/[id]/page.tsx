@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,16 +26,20 @@ export default function RaceRoomPage() {
     winner: roomWinner, // Get winner from room provider
     countdownRemaining, 
     getRoomInfo, 
-    leaveRoom,
-    createRoom: createRoomWithProvider
+    leaveRoom
   } = useRoom();
   const [isJoining, setIsJoining] = useState(true); // Set to true initially since we're trying to join
-  const [error, setError] = useState<string | null>(null);
   const [initialLoad, setInitialLoad] = useState(true);
   // Track if we've seen the first status update from SSE to prevent flickering
   const [hasReceivedStatusUpdate, setHasReceivedStatusUpdate] = useState(false);
   const WORD_LENGTH = 5;
   const MAX_ATTEMPTS = 6;
+  
+  // Refs for values that shouldn't trigger re-runs of effects
+  const statusRef = useRef(status);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
   
   // Initialize the board
   const initialBoard = Array(MAX_ATTEMPTS).fill(null).map(() => 
@@ -51,35 +55,31 @@ export default function RaceRoomPage() {
   const [usedKeys, setUsedKeys] = useState<Record<string, string>>({});
 
   const [gameOver, setGameOver] = useState(false); // Local game over state
-  const [playerStats, setPlayerStats] = useState({
-    completed: false,
-    timeTaken: 0
-  });
+
   
   // Game state
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [words, setWords] = useState<string[]>([]); // The 20 shared words
   const [gameInitialized, setGameInitialized] = useState(false); // Track if game is properly initialized
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
+
   const [validWords, setValidWords] = useState<string[]>([]);
   const [wordleWords, setWordleWords] = useState<string[]>([]);
   
 
   // Update local game over state based on room state
   useEffect(() => {
-    if (roomGameOver) {
+    if (roomGameOver && !gameOver) {
       setGameOver(true);
     }
-  }, [roomGameOver]);
+  }, [roomGameOver, gameOver]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update game initialization status
   useEffect(() => {
-    if (status === 'in-progress' && words.length > 0 && players.length > 0) {
-      setGameInitialized(true);
-    } else {
-      setGameInitialized(false);
+    const shouldInitialize = status === 'in-progress' && words.length > 0 && players.length > 0;
+    if (shouldInitialize !== gameInitialized) {
+      setGameInitialized(shouldInitialize);
     }
-  }, [status, words.length, players.length]);
+  }, [status, words, players, gameInitialized]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const [playerId] = useState(() => {
@@ -99,20 +99,21 @@ export default function RaceRoomPage() {
     let isCancelled = false; // Flag to track if component is unmounting
     
     if (roomCode && playerId && !isCancelled) {
-      setIsJoining(true);
-      setInitialLoad(true);
+      // Set loading states using functional updates to prevent race conditions
+      setIsJoining(prev => prev !== true ? true : prev);
+      setInitialLoad(prev => prev !== true ? true : prev);
       console.log('Attempting to connect to room:', roomCode);
       // Try to get room info (this will work for both joining and if user is already in the room)
       getRoomInfo(roomCode, playerId).then((success) => {
         if (!isCancelled && !success) {
           // If getting room info failed, it might be because we need to join
-          setError('Room does not exist or you do not have access to it.');
-          setIsJoining(false);
-          setInitialLoad(false);
+          // setError('Room does not exist or you do not have access to it.'); // Removed unused error state
+          setIsJoining(prev => prev !== false ? false : prev);
+          setInitialLoad(prev => prev !== false ? false : prev);
         } else if (!isCancelled) {
-          setIsJoining(false);
-          setInitialLoad(false);
-          console.log('Successfully connected to room:', roomCode, 'Status:', status);
+          setIsJoining(prev => prev !== false ? false : prev);
+          setInitialLoad(prev => prev !== false ? false : prev);
+          console.log('Successfully connected to room:', roomCode, 'Status:', statusRef.current);
         }
       }).catch((error) => {
         if (!isCancelled) {
@@ -122,10 +123,10 @@ export default function RaceRoomPage() {
             console.log('Room not found or player not in room - possible after leaving room or game ended');
           } else {
             console.error('Error connecting to room:', error);
-            setError('Failed to connect to room. Please try again.');
+            // setError('Failed to connect to room. Please try again.'); // Removed unused error state
           }
-          setIsJoining(false);
-          setInitialLoad(false);
+          setIsJoining(prev => prev !== false ? false : prev);
+          setInitialLoad(prev => prev !== false ? false : prev);
         }
       });
     }
@@ -134,7 +135,7 @@ export default function RaceRoomPage() {
     return () => {
       isCancelled = true;
     };
-  }, [roomCode, playerId, getRoomInfo]); // Removed status from dependency array to avoid infinite loop
+  }, [roomCode, playerId, getRoomInfo]); // Removed status, isJoining, initialLoad from dependency array to avoid infinite loop // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
@@ -174,10 +175,10 @@ export default function RaceRoomPage() {
         };
         
         generateAndStoreWords();
-      } else {
+      } else if (JSON.stringify(sharedWords) !== JSON.stringify(words)) {
         // Use the shared words from the room provider
         setWords(sharedWords);
-      }
+      } // eslint-disable-line react-hooks/exhaustive-deps
       
       // Load valid words for validation if not already loaded
       if (validWords.length === 0 || wordleWords.length === 0) {
@@ -187,20 +188,20 @@ export default function RaceRoomPage() {
         });
       }
     }
-  }, [status, players.length, sharedWords, validWords.length, wordleWords.length, playerId, roomCode]);
+  }, [status, players, sharedWords, validWords.length, wordleWords.length, playerId, roomCode, words]);
 
   // Track when we first receive a non-default status from SSE to prevent flickering
   useEffect(() => {
     // Only set hasReceivedStatusUpdate to true if the status is not the initial default
-    if (status !== 'none') {
+    if (status !== 'none' && !hasReceivedStatusUpdate) {
       setHasReceivedStatusUpdate(true);
     }
-  }, [status]);
+  }, [status, hasReceivedStatusUpdate]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
   // Update player score by sending to backend
-  const updatePlayerScore = async (playerId: string, points: number) => {
+  const updatePlayerScore = useCallback(async (playerId: string, points: number) => {
     if (!roomCode) return;
     
     try {
@@ -222,10 +223,25 @@ export default function RaceRoomPage() {
     } catch (error) {
       console.error('Error updating score:', error);
     }
-  };
+  }, [roomCode]);
+
+  // Helper function to reset for a new word
+  const resetCurrentRow = useCallback(() => {
+    const newBoard = [...board];
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      for (let j = 0; j < WORD_LENGTH; j++) {
+        newBoard[i][j] = '';
+      }
+    }
+    setBoard(newBoard);
+    setRevealed(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
+    setCurrentRow(0);
+    setCurrentCol(0);
+    setUsedKeys({});
+  }, [board, MAX_ATTEMPTS, WORD_LENGTH]);
 
   // Handle keyboard input for the Wordle grid
-  const handleKeyPress = async (key: string) => {
+  const handleKeyPress = useCallback(async (key: string) => {
     if (gameOver || status !== 'in-progress') return;
     
     if (key === 'Enter') {
@@ -402,22 +418,7 @@ export default function RaceRoomPage() {
         setCurrentCol(currentCol + 1);
       }
     }
-  };
-
-  // Helper function to reset for a new word
-  const resetCurrentRow = () => {
-    const newBoard = [...board];
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      for (let j = 0; j < WORD_LENGTH; j++) {
-        newBoard[i][j] = '';
-      }
-    }
-    setBoard(newBoard);
-    setRevealed(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
-    setCurrentRow(0);
-    setCurrentCol(0);
-    setUsedKeys({});
-  };
+  }, [gameOver, status, WORD_LENGTH, MAX_ATTEMPTS, board, currentRow, currentCol, words, currentWordIndex, scores, playerId, roomCode, revealed, usedKeys, updatePlayerScore, resetCurrentRow]);
 
   // Handle physical keyboard events
   useEffect(() => {
@@ -437,7 +438,7 @@ export default function RaceRoomPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentRow, currentCol, gameOver, status]);
+  }, [currentRow, currentCol, gameOver, status, handleKeyPress]);
 
   const handleLeaveRoom = () => {
     leaveRoom();

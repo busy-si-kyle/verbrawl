@@ -1,13 +1,11 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, ReactNode } from 'react';
 
 type Theme = 'dark' | 'light' | 'system';
 
 type ThemeProviderProps = {
   children: ReactNode;
-  defaultTheme?: Theme;
-  storageKey?: string;
 };
 
 type ThemeProviderState = {
@@ -24,32 +22,23 @@ const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'dark',
-  storageKey = 'ui-theme',
   ...props
-}: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem(storageKey) as Theme) || defaultTheme;
-    }
-    return defaultTheme;
-  });
-
+}: Omit<ThemeProviderProps, 'defaultTheme' | 'storageKey'>) {
   useEffect(() => {
     const root = window.document.documentElement;
 
     root.classList.remove('light', 'dark');
-    root.classList.add(theme);
-  }, [theme]);
+    root.classList.add('dark'); // Always add dark class
+  }, []);
 
   // Always enforce dark theme
   useEffect(() => {
-    setTheme('dark');
+    // No need to setTheme here since we initialize to 'dark' and never change it
   }, []);
 
-  const value = {
-    theme,
-    setTheme: () => setTheme('dark'), // Always set to dark
+  const value: ThemeProviderState = {
+    theme: 'dark', // Always return dark
+    setTheme: () => {}, // No-op since theme is always dark
   };
 
   return (

@@ -14,14 +14,14 @@ export function CountdownTimer({ remainingTime, onComplete }: CountdownTimerProp
 
   // Update the display time when remainingTime prop changes
   useEffect(() => {
+    // Store the new remainingTime value
+    prevRemainingTimeRef.current = remainingTime;
+    
     // Clear any existing interval when prop changes
     if (animationRef.current) {
       clearInterval(animationRef.current);
       animationRef.current = null;
     }
-    
-    setDisplayTime(remainingTime);
-    prevRemainingTimeRef.current = remainingTime;
     
     // Restart the animation from the new time if we're still counting down
     if (remainingTime > 0) {

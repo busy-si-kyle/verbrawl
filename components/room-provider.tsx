@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from 'react';
 
 interface RoomContextType {
   roomCode: string | null;
@@ -33,25 +33,33 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [serverCountdownStart, setServerCountdownStart] = useState<number | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
+  
+  // Ref to hold the connection function to avoid closure issues
+  const connectToRoomUpdatesRef = useRef<((roomCode: string, connectionPlayerId: string) => void) | null>(null);
 
   // Initialize player ID from localStorage or create new one
-  useEffect(() => {
-    let storedPlayerId = localStorage.getItem('player-id');
-    if (!storedPlayerId) {
-      storedPlayerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem('player-id', storedPlayerId);
+  const [storedPlayerId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      let playerIdValue = localStorage.getItem('player-id');
+      if (!playerIdValue) {
+        playerIdValue = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        localStorage.setItem('player-id', playerIdValue);
+      }
+      return playerIdValue;
     }
-    setPlayerId(storedPlayerId);
-  }, []);
+    // Server-side fallback - generate a temporary ID that will be replaced on client
+    return `temp_player_${Date.now()}`;
+  });
 
-  const connectToRoomUpdates = useCallback((roomCode: string, playerId: string) => {
+  const createRoomUpdatesConnection = useCallback((roomCode: string, connectionPlayerId: string) => {
     // Close existing connection if any
-    if (eventSource) {
-      eventSource.close();
+    const currentEventSource = eventSource; // Capture current eventSource value
+    if (currentEventSource) {
+      currentEventSource.close();
     }
 
     // Create new SSE connection for room updates
-    const sseUrl = `/api/sse/room?roomCode=${roomCode}&playerId=${playerId}`;
+    const sseUrl = `/api/sse/room?roomCode=${roomCode}&playerId=${connectionPlayerId}`;
     // Add cache-busting and heartbeat parameters to prevent browser connection issues
     const newEventSource = new EventSource(`${sseUrl}&t=${Date.now()}&hb=1`);
 
@@ -121,10 +129,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       // Close the erroring connection to prevent further errors
       newEventSource.close();
       
-      // Try to reconnect after a delay
+      // Try to reconnect after a delay using the ref
       setTimeout(() => {
-        if (roomCode && playerId) {
-          connectToRoomUpdates(roomCode, playerId);
+        if (roomCode && storedPlayerId && connectToRoomUpdatesRef.current) {
+          connectToRoomUpdatesRef.current(roomCode, storedPlayerId);
         }
       }, 1000); // Faster reconnect time
     };
@@ -135,14 +143,19 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     };
 
     setEventSource(newEventSource);
-  }, [eventSource]);
+  }, [eventSource]); // Dependencies are captured properly
+
+  // Update ref whenever createRoomUpdatesConnection changes
+  useEffect(() => {
+    connectToRoomUpdatesRef.current = createRoomUpdatesConnection;
+  }, [createRoomUpdatesConnection]);
 
   // Add visibility change handler to reconnect when tab becomes visible again
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && roomCode && playerId && status === 'countdown') {
+      if (document.visibilityState === 'visible' && roomCode && storedPlayerId && status === 'countdown' && connectToRoomUpdatesRef.current) {
         // Reconnect to ensure we get updates if the connection was throttled
-        connectToRoomUpdates(roomCode, playerId);
+        connectToRoomUpdatesRef.current(roomCode, storedPlayerId);
       }
     };
 
@@ -151,7 +164,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [roomCode, playerId, status, connectToRoomUpdates]);
+  }, [roomCode, storedPlayerId, status, connectToRoomUpdatesRef]);
 
   // Client-side countdown timer that runs independently of SSE
   useEffect(() => {
@@ -189,9 +202,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   // Add visibility change handler to pause/resume countdown when tab visibility changes
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && roomCode && playerId && status === 'countdown') {
+      if (document.visibilityState === 'visible' && roomCode && playerId && status === 'countdown' && connectToRoomUpdatesRef.current) {
         // Reconnect to get latest state when tab becomes visible again
-        connectToRoomUpdates(roomCode, playerId);
+        connectToRoomUpdatesRef.current(roomCode, playerId);
       }
     };
 
@@ -200,10 +213,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [roomCode, playerId, status, connectToRoomUpdates]);
+  }, [roomCode, playerId, status, connectToRoomUpdatesRef]);
 
-  const createRoom = useCallback(async (playerId: string) => {
-    if (!playerId) return false;
+  const createRoom = useCallback(async (roomPlayerId: string) => {
+    if (!roomPlayerId) return false;
     
     try {
       const response = await fetch('/api/room', {
@@ -211,7 +224,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ playerId }),
+        body: JSON.stringify({ playerId: roomPlayerId }),
       });
 
       const data = await response.json();
@@ -219,14 +232,16 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         setRoomCode(data.roomCode);
         setStatus(data.status);
-        setPlayers(data.players || [playerId]);
+        setPlayers(data.players || [roomPlayerId]);
         // Set initial scores from the API response
-        setScores(data.scores || { [playerId]: 0 });
+        setScores(data.scores || { [roomPlayerId]: 0 });
         // Set initial words and game state
         setWords(data.words || []);
         setGameOver(data.gameOver || false);
         setWinner(data.winner || null);
-        connectToRoomUpdates(data.roomCode, playerId);
+        if (connectToRoomUpdatesRef.current) {
+          connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
+        }
         return true;
       } else {
         console.error('Error creating room:', data.error);
@@ -236,10 +251,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       console.error('Error creating room:', error);
       return false;
     }
-  }, [connectToRoomUpdates]);
+  }, [connectToRoomUpdatesRef]);
 
-  const joinRoom = useCallback(async (roomCode: string, playerId: string) => {
-    if (!roomCode || !playerId) return false;
+  const joinRoom = useCallback(async (roomCode: string, roomPlayerId: string) => {
+    if (!roomCode || !roomPlayerId) return false;
     
     try {
       const response = await fetch('/api/room', {
@@ -247,7 +262,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ roomCode, playerId }),
+        body: JSON.stringify({ roomCode, playerId: roomPlayerId }),
       });
 
       const data = await response.json();
@@ -263,7 +278,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setWinner(data.winner || null);
         setCountdownRemaining(data.status === 'countdown' ? (data.remainingCountdown || null) : null);
         setServerCountdownStart(data.countdownStart || null);
-        connectToRoomUpdates(data.roomCode, playerId);
+        if (connectToRoomUpdatesRef.current) {
+          connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
+        }
         return true;
       } else {
         console.error('Error joining room:', data.error);
@@ -273,13 +290,13 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       console.error('Error joining room:', error);
       return false;
     }
-  }, [connectToRoomUpdates]);
+  }, [connectToRoomUpdatesRef]);
 
-  const getRoomInfo = useCallback(async (roomCode: string, playerId: string) => {
-    if (!roomCode || !playerId) return false;
+  const getRoomInfo = useCallback(async (roomCode: string, roomPlayerId: string) => {
+    if (!roomCode || !roomPlayerId) return false;
     
     try {
-      const response = await fetch(`/api/room?roomCode=${roomCode}&playerId=${playerId}`, {
+      const response = await fetch(`/api/room?roomCode=${roomCode}&playerId=${roomPlayerId}`, {
         method: 'GET',
       });
 
@@ -296,7 +313,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setWinner(data.winner || null);
         setCountdownRemaining(data.status === 'countdown' ? (data.remainingCountdown || null) : null);
         setServerCountdownStart(data.countdownStart || null);
-        connectToRoomUpdates(data.roomCode, playerId);
+        if (connectToRoomUpdatesRef.current) {
+          connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
+        }
         return true;
       } else {
         console.error('Error getting room info:', data.error);
@@ -306,7 +325,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       console.error('Error getting room info:', error);
       return false;
     }
-  }, [connectToRoomUpdates]);
+  }, [connectToRoomUpdatesRef]);
 
   const leaveRoom = useCallback(async () => {
     if (eventSource) {
@@ -314,14 +333,14 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     }
     
     // If we have a room code and player ID, make an API call to properly leave the room
-    if (roomCode && playerId) {
+    if (roomCode && storedPlayerId) {
       try {
         await fetch('/api/room/leave', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ roomCode, playerId }),
+          body: JSON.stringify({ roomCode, playerId: storedPlayerId }),
         });
       } catch (error) {
         console.error('Error leaving room:', error);
@@ -337,7 +356,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setWinner(null); // Reset winner when leaving room
     setCountdownRemaining(null);
     setEventSource(null);
-  }, [eventSource, roomCode, playerId]);
+  }, [eventSource, roomCode, storedPlayerId]);
 
   const resetRoom = useCallback(() => {
     // Use this to completely reset the room context

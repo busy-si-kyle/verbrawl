@@ -2,6 +2,7 @@
 import { createClient, type RedisClientType } from 'redis';
 
 let redisClient: RedisClientType | null = null;
+let redisPubSubClient: RedisClientType | null = null;
 
 export function getRedisClient(): RedisClientType {
   if (!redisClient) {
@@ -14,4 +15,17 @@ export function getRedisClient(): RedisClientType {
     });
   }
   return redisClient;
+}
+
+export function getRedisPubSubClient(): RedisClientType {
+  if (!redisPubSubClient) {
+    redisPubSubClient = createClient({
+      url: process.env.REDIS_URL,
+    });
+
+    redisPubSubClient.on('error', (err) => {
+      console.error('Redis Pub/Sub Client Error:', err);
+    });
+  }
+  return redisPubSubClient;
 }

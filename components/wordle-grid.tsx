@@ -4,7 +4,7 @@ interface WordleGridProps {
   board: string[][];
   currentRow: number;
   currentCol: number;
-  revealed: boolean[][];
+  revealed: (boolean | 'correct' | 'present' | 'absent')[][];
   solution?: string; // Current word solution for coloring letters
 }
 
@@ -51,20 +51,20 @@ const WordleGrid: React.FC<WordleGridProps> = ({
     const cellStatus = revealed[row][col];
     
     // If it's already a status string, return it
-    if (typeof cellStatus === 'string' && cellStatus !== 'true') {
+    if (typeof cellStatus === 'string' && ['correct', 'present', 'absent'].includes(cellStatus)) {
       return cellStatus;
     }
     
     // If it's false (not revealed yet), return empty string
-    if (!cellStatus || cellStatus === false) {
+    if (cellStatus === false) {
       return '';
     }
     
-    // If it's true but not a specific status, return based on solution
-    if (!solution) return 'submitted'; // If no solution provided, just mark as submitted
+    // If it's true but no solution provided, return 'submitted'
+    if (cellStatus === true && !solution) return 'submitted'; // If no solution provided, just mark as submitted
     
     // Fallback: calculate statuses based on the solution
-    const letterStatuses = getLetterStatuses(board[row].join(''), solution);
+    const letterStatuses = solution ? getLetterStatuses(board[row].join(''), solution) : [];
     return letterStatuses[col] || 'submitted';
   };
 

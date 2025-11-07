@@ -25,20 +25,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate a unique 5-digit room code
-    let roomCode: string;
+    let roomCode: string | null = null;
     let isUnique = false;
     let attempts = 0;
     
     while (!isUnique && attempts < 10) {
-      roomCode = Math.floor(10000 + Math.random() * 90000).toString();
-      const roomExists = await redis.exists(`${ROOM_PREFIX}${roomCode}`);
+      const potentialRoomCode = Math.floor(10000 + Math.random() * 90000).toString();
+      const roomExists = await redis.exists(`${ROOM_PREFIX}${potentialRoomCode}`);
       if (!roomExists) {
+        roomCode = potentialRoomCode;
         isUnique = true;
       }
       attempts++;
     }
     
-    if (!isUnique) {
+    if (!isUnique || roomCode === null) {
       return new Response(JSON.stringify({ error: 'Failed to generate unique room code' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
