@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { useRoom } from '@/components/room-provider';
-import { CountdownTimer } from '@/components/countdown-timer';
+
 import WordleGrid from '@/components/wordle-grid';
 import Keyboard from '@/components/keyboard';
 import { toast } from 'sonner';
@@ -501,17 +501,14 @@ export default function RaceRoomPage() {
                   <p className="mb-2 text-lg">
                     {status === 'waiting' 
                       ? `Waiting for another player... (${players.length}/2)` 
-                      : 'Starting in'}
+                      : 'Starting soon! Get ready!'}
                   </p>
                   
                   <div className="mb-4 min-h-[120px] flex items-center justify-center">
-                    {status === 'countdown' && countdownRemaining !== null && countdownRemaining !== undefined ? (
-                      <CountdownTimer 
-                        remainingTime={countdownRemaining} 
-                        onComplete={() => {
-                          // When countdown completes, game starts automatically
-                        }} 
-                      />
+                    {status === 'countdown' ? (
+                      <div className="text-3xl sm:text-4xl font-bold text-primary transition-opacity duration-300">
+                        Get ready!
+                      </div>
                     ) : (
                       <div className="text-6xl font-bold text-primary transition-opacity duration-100"></div>
                     )}
