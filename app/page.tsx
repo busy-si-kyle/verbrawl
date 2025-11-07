@@ -32,7 +32,9 @@ export default function Home() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pb-6">
-                <Button className="w-full">Play Now</Button>
+                <Link href="/time-limit">
+                  <Button className="w-full">Play Now</Button>
+                </Link>
               </CardContent>
             </Card>
             
