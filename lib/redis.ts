@@ -7,7 +7,7 @@ let redisPubSubClient: RedisClientType | null = null;
 export function getRedisClient(): RedisClientType {
   if (!redisClient) {
     redisClient = createClient({
-      url: process.env.REDIS_URL,
+      url: process.env.VERBRAWL_REDIS_URL,
     });
 
     redisClient.on('error', (err) => {
@@ -20,7 +20,7 @@ export function getRedisClient(): RedisClientType {
 export function getRedisPubSubClient(): RedisClientType {
   if (!redisPubSubClient) {
     redisPubSubClient = createClient({
-      url: process.env.REDIS_URL,
+      url: process.env.VERBRAWL_REDIS_URL,
     });
 
     redisPubSubClient.on('error', (err) => {
