@@ -1,6 +1,7 @@
 // app/api/player-count/route.ts
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
+import { cleanExpiredSessions } from '@/lib/player-count-utils';
 
 const SESSION_PREFIX = 'session:';
 const ACTIVE_SESSIONS_SET = 'active_sessions';
@@ -29,8 +30,9 @@ export async function GET(request: NextRequest) {
       await redis.setEx(sessionKey, SESSION_TTL, 'active');
     }
     
-    // Get count of active players using Redis set cardinality
-    const playerCount = await redis.sCard(ACTIVE_SESSIONS_SET);
+    // Clean expired sessions and get accurate count
+    // This fixes the ghost user problem by removing sessions whose keys have expired
+    const playerCount = await cleanExpiredSessions(redis);
     
     return new Response(JSON.stringify({ 
       count: playerCount,

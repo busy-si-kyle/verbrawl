@@ -11,44 +11,63 @@ interface CountdownTimerProps {
 
 export function CountdownTimer({ remainingTime, onComplete, timerStarted = true, showInMinutes = false }: CountdownTimerProps) {
   const [displayTime, setDisplayTime] = useState(remainingTime);
-  const prevRemainingTimeRef = useRef(remainingTime);
-  const animationRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSyncedTimeRef = useRef(remainingTime);
+  const startTimeRef = useRef<number | null>(null);
 
-  // Update the display time when remainingTime prop changes
+  // Sync displayTime with remainingTime prop when it changes
   useEffect(() => {
-    // Store the new remainingTime value
-    prevRemainingTimeRef.current = remainingTime;
-    
-    // Clear any existing interval when prop changes
-    if (animationRef.current) {
-      clearInterval(animationRef.current);
-      animationRef.current = null;
+    // Only sync if the prop actually changed (not just a re-render)
+    if (remainingTime !== lastSyncedTimeRef.current) {
+      lastSyncedTimeRef.current = remainingTime;
+      setDisplayTime(remainingTime);
+      startTimeRef.current = null; // Reset start time when prop changes
     }
-    
-    // Restart the animation from the new time if we're still counting down and timer has started
-    if (remainingTime > 0 && timerStarted) {
-      animationRef.current = setInterval(() => {
+  }, [remainingTime]);
+
+  // Handle countdown animation
+  useEffect(() => {
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    // Only start countdown if timer has started and time is positive
+    if (timerStarted && remainingTime > 0 && displayTime > 0) {
+      // Record when we started this countdown cycle
+      if (startTimeRef.current === null) {
+        startTimeRef.current = Date.now();
+      }
+
+      intervalRef.current = setInterval(() => {
         setDisplayTime(prev => {
-          const newTime = Math.max(0, prev - 100);
+          // Calculate elapsed time since start
+          const elapsed = Date.now() - (startTimeRef.current || Date.now());
+          // Calculate new time based on remainingTime prop minus elapsed
+          const newTime = Math.max(0, remainingTime - elapsed);
+          
           if (newTime <= 0) {
-            if (animationRef.current) {
-              clearInterval(animationRef.current);
-              animationRef.current = null;
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+              intervalRef.current = null;
             }
+            startTimeRef.current = null;
             onComplete();
+            return 0;
           }
           return newTime;
         });
-      }, 100);
+      }, 100); // Update every 100ms for smooth animation
     }
 
     return () => {
-      if (animationRef.current) {
-        clearInterval(animationRef.current);
-        animationRef.current = null;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
-  }, [remainingTime, onComplete, timerStarted]);
+  }, [remainingTime, timerStarted, displayTime, onComplete]);
 
   // Format time as MM:SS if required
   const formatTime = (timeInMs: number) => {

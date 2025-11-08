@@ -28,6 +28,7 @@ export default function TimeLimitPage() {
   // Use ref to store timer ID to properly clear it
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const restartButtonRef = useRef<HTMLButtonElement>(null);
+  const targetWordRef = useRef<string>('');
 
   // Add keyboard event listener for physical keyboard support
   useEffect(() => {
@@ -75,6 +76,11 @@ export default function TimeLimitPage() {
     initializeGame();
   }, []);
 
+  // Sync targetWordRef with targetWord state to avoid stale closures
+  useEffect(() => {
+    targetWordRef.current = targetWord;
+  }, [targetWord]);
+
   // Handle timer countdown - only start after first valid guess
   useEffect(() => {
     // Clear any existing timer when dependencies change
@@ -109,8 +115,8 @@ export default function TimeLimitPage() {
     if (!timeUpHandled) {
       setGameStatus('time-up');
       setTimeUpHandled(true);
-      toast.info('Time is up!', {
-        description: `Game over! You solved ${score} words.`,
+      toast.info("Time's Up!", {
+        description: `The word was: ${targetWordRef.current}`,
       });
     }
   };
@@ -118,19 +124,22 @@ export default function TimeLimitPage() {
   const handleKeyPress = async (key: string) => {
     if (gameStatus !== 'playing' || currentRow >= MAX_ATTEMPTS) return;
 
-    if (key === 'ENTER') {
+    // Normalize key to uppercase for consistent handling
+    const normalizedKey = key.toUpperCase();
+
+    if (normalizedKey === 'ENTER') {
       await submitGuess();
-    } else if (key === 'BACKSPACE') {
+    } else if (normalizedKey === 'BACKSPACE') {
       if (currentCol > 0) {
         const newBoard = [...board];
         newBoard[currentRow][currentCol - 1] = '';
         setBoard(newBoard);
         setCurrentCol(prev => Math.max(0, prev - 1));
       }
-    } else if (key.match(/^[A-Z]$/)) {
+    } else if (normalizedKey.match(/^[A-Z]$/)) {
       if (currentCol < WORD_LENGTH) {
         const newBoard = [...board];
-        newBoard[currentRow][currentCol] = key;
+        newBoard[currentRow][currentCol] = normalizedKey;
         setBoard(newBoard);
         setCurrentCol(prev => prev + 1);
       }
@@ -216,7 +225,8 @@ export default function TimeLimitPage() {
       setCurrentRow(0);
       setCurrentCol(0);
       setRevealed(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
-      // Keep used keys to show progress across words
+      // Reset used keys to clear keyboard colors for new game
+      setUsedKeys({});
     } catch (error) {
       console.error('Error loading next word:', error);
       toast.error('Failed to load next word. Please try again.');
@@ -335,33 +345,38 @@ export default function TimeLimitPage() {
             </div>
             
             {/* Right column: Wordle grid and keyboard */}
-            <div className="md:w-2/3 flex flex-col gap-4">
-              {/* Word grid using the WordleGrid component */}
-              <WordleGrid 
-                board={board}
-                currentRow={currentRow}
-                currentCol={currentCol}
-                revealed={revealed.map((row, i) => 
-                  row.map((isRevealed, j) => {
-                    if (isRevealed && targetWord) {
-                      const statuses = getLetterStatuses(board[i].join('').toUpperCase(), targetWord);
-                      return statuses[j];
-                    }
-                    return isRevealed;
-                  })
-                )}
-                solution={targetWord}
-              />
-
-              {/* Keyboard */}
-              <Keyboard 
-                usedKeys={usedKeys} 
-                onKeyPress={(key) => {
-                  if (gameStatus === 'playing') {
-                    handleKeyPress(key);
-                  }
-                }}
-              />
+            <div className="md:w-2/3 flex justify-center items-center">
+              <div className="w-full max-w-md flex flex-col items-center">
+                <div className="w-full -mt-2">
+                  {/* Word grid using the WordleGrid component */}
+                  <WordleGrid 
+                    board={board}
+                    currentRow={currentRow}
+                    currentCol={currentCol}
+                    revealed={revealed.map((row, i) => 
+                      row.map((isRevealed, j) => {
+                        if (isRevealed && targetWord) {
+                          const statuses = getLetterStatuses(board[i].join('').toUpperCase(), targetWord);
+                          return statuses[j];
+                        }
+                        return isRevealed;
+                      })
+                    )}
+                    solution={targetWord}
+                  />
+                </div>
+                <div className="w-full mt-2">
+                  {/* Keyboard */}
+                  <Keyboard 
+                    usedKeys={usedKeys} 
+                    onKeyPress={(key) => {
+                      if (gameStatus === 'playing') {
+                        handleKeyPress(key);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
