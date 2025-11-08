@@ -25,8 +25,8 @@ export async function POST(request: NextRequest) {
     const ACTIVE_SESSIONS_SET = 'active_sessions';
     const beforeCount = await redis.sCard(ACTIVE_SESSIONS_SET);
     
-    // Run cleanup and get accurate count
-    const afterCount = await cleanExpiredSessions(redis);
+    // Run cleanup and get accurate count (force cleanup for this maintenance endpoint)
+    const afterCount = await cleanExpiredSessions(redis, true);
     
     const cleaned = beforeCount - afterCount;
     

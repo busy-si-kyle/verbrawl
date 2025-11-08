@@ -16,10 +16,13 @@ export function PlayerCountProvider({ children }: { children: ReactNode }) {
     // Fetch player count only
     const fetchPlayerCount = async () => {
       try {
+        let sessionId: string | null = null;
+        if (typeof window !== 'undefined') {
+          // Try player-id (used in room-provider), fallback to player-session
+          sessionId = localStorage.getItem('player-id') || localStorage.getItem('player-session');
+        }
         const response = await fetch('/api/player-count', {
-          headers: {
-            // Don't send a session ID - just fetch the count
-          }
+          headers: sessionId ? { 'x-session-id': sessionId } : {},
         });
         if (response.ok) {
           const data = await response.json();

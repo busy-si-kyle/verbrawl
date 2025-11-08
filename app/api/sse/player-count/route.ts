@@ -1,7 +1,6 @@
 // app/api/sse/player-count/route.ts
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
-import { cleanExpiredSessions } from '@/lib/player-count-utils';
 
 const ACTIVE_SESSIONS_SET = 'active_sessions';
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -29,11 +28,11 @@ export async function GET(req: NextRequest) {
           // Don't send updates if connection is already closed
           if (isClosed) return;
           
-          // Clean expired sessions and get accurate count
-          // This ensures real-time updates reflect accurate player counts
-          const playerCount = await cleanExpiredSessions(redis);
+          // Get the count of sessions in the set directly (may include expired sessions)
+          // This avoids expensive cleanup operations on every request
+          const rawCount = await redis.sCard(ACTIVE_SESSIONS_SET);
           const data = {
-            playerCount,
+            playerCount: rawCount,
             timestamp: Date.now()
           };
           

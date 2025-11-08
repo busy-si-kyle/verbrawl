@@ -8,14 +8,25 @@ const ACTIVE_SESSIONS_SET = 'active_sessions';
  * Helper function to clean expired sessions from the active_sessions set.
  * Validates each session ID by checking if its Redis key still exists.
  * Removes expired sessions from the set and returns the count of valid sessions.
+ * 
+ * @param redis - Redis client instance
+ * @param forceCleanup - Whether to force cleanup even if set is large (defaults to false)
+ * @returns Promise<number> - The count of valid (non-expired) sessions
  */
-export async function cleanExpiredSessions(redis: RedisClientType): Promise<number> {
+export async function cleanExpiredSessions(redis: RedisClientType, forceCleanup: boolean = false): Promise<number> {
   try {
     // Get all session IDs from the set
     const allSessionIds = await redis.sMembers(ACTIVE_SESSIONS_SET);
     
     if (allSessionIds.length === 0) {
       return 0;
+    }
+    
+    // For performance, skip expensive cleanup if the set is very large and not forced
+    // This prevents performance issues when there are many historical sessions
+    if (!forceCleanup && allSessionIds.length > 100) {
+      // Return set cardinality without expensive cleanup for large sets
+      return await redis.sCard(ACTIVE_SESSIONS_SET);
     }
     
     const validSessionIds: string[] = [];
