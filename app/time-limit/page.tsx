@@ -24,6 +24,7 @@ export default function TimeLimitPage() {
   const [shouldStartTimer, setShouldStartTimer] = useState(false); // Flag to trigger timer start
   const [revealed, setRevealed] = useState<boolean[][]>(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
   const [usedKeys, setUsedKeys] = useState<Record<string, 'correct' | 'present' | 'absent'>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Use ref to store timer ID to properly clear it
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -33,7 +34,7 @@ export default function TimeLimitPage() {
   // Add keyboard event listener for physical keyboard support
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (gameStatus !== 'playing' || currentRow >= MAX_ATTEMPTS) return;
+      if (gameStatus !== 'playing' || currentRow >= MAX_ATTEMPTS || isSubmitting) return;
 
       const key = event.key.toUpperCase();
 
@@ -58,7 +59,7 @@ export default function TimeLimitPage() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [gameStatus, currentRow, currentCol, targetWord, board, revealed, usedKeys]);
+  }, [gameStatus, currentRow, currentCol, targetWord, board, revealed, usedKeys, isSubmitting]);
 
   // Initialize the game
   useEffect(() => {
@@ -122,7 +123,7 @@ export default function TimeLimitPage() {
   };
 
   const handleKeyPress = async (key: string) => {
-    if (gameStatus !== 'playing' || currentRow >= MAX_ATTEMPTS) return;
+    if (gameStatus !== 'playing' || currentRow >= MAX_ATTEMPTS || isSubmitting) return;
 
     // Normalize key to uppercase for consistent handling
     const normalizedKey = key.toUpperCase();
@@ -152,6 +153,7 @@ export default function TimeLimitPage() {
       return;
     }
 
+    setIsSubmitting(true);
     const currentWord = board[currentRow].join('').toLowerCase();
     
     try {
@@ -211,6 +213,8 @@ export default function TimeLimitPage() {
     } catch (error) {
       console.error('Error validating guess:', error);
       toast.error('Error validating your guess. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

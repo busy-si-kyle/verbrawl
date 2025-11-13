@@ -64,6 +64,7 @@ export default function RaceRoomPage() {
 
   const [validWords, setValidWords] = useState<string[]>([]);
   const [wordleWords, setWordleWords] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
 
   // Update local game over state based on room state
@@ -242,7 +243,7 @@ export default function RaceRoomPage() {
 
   // Handle keyboard input for the Wordle grid
   const handleKeyPress = useCallback(async (key: string) => {
-    if (gameOver || status !== 'in-progress') return;
+    if (gameOver || status !== 'in-progress' || isSubmitting) return;
     
     if (key === 'Enter') {
       if (currentCol !== WORD_LENGTH) {
@@ -250,89 +251,127 @@ export default function RaceRoomPage() {
         return;
       }
       
-      // Get the current word
-      const currentWord = board[currentRow].join('').toLowerCase();
-      
-      // Check if the word is valid
-      const isValid = await isValidWord(currentWord);
-      if (!isValid) {
-        // Show toast notification for invalid word
-        toast.error('INVALID WORD', {
-          description: 'TRY AGAIN',
-        });
-        return;
-      }
-      
-      // Check against the solution and get letter statuses
-      // Check if game is properly initialized before processing
-      if (!words || words.length === 0 || currentWordIndex >= words.length || currentWordIndex < 0) {
-        console.error(`Game not properly initialized: words length = ${words?.length || 0}, currentWordIndex = ${currentWordIndex}`);
-        return; // Exit early if game isn't properly initialized
-      }
-      
-      const solution = words[currentWordIndex];
-      // Add safety check to ensure solution exists before processing
-      if (!solution) {
-        console.error(`No solution found for word index ${currentWordIndex}, available words: ${words.length}`);
-        return; // Exit early if solution doesn't exist yet
-      }
-      
-      const letterStatuses = getLetterStatuses(currentWord, solution);
-      
-      // Mark this row as revealed with proper statuses
-      const newRevealed = [...revealed];
-      newRevealed[currentRow] = [...letterStatuses];
-      setRevealed(newRevealed);
-      
-      // Update key statuses based on the solution
-      const newUsedKeys = {...usedKeys};
-      board[currentRow].forEach((letter, index) => {
-        if (letter) {
-          const status = letterStatuses[index];
-          if (status) {  // Ensure status exists before processing
-            // Only update status if it's better than the current one
-            if (!newUsedKeys[letter] || 
-                (newUsedKeys[letter] === 'absent' && status !== 'absent') ||
-                (newUsedKeys[letter] === 'present' && status === 'correct')) {
-              newUsedKeys[letter] = status;
-            }
-          }
-        }
-      });
-      setUsedKeys(newUsedKeys);
-      
-      // Check if the word was guessed correctly
-      if (currentWord === solution.toLowerCase()) {
-        // Calculate what the new score should be based on current state for win condition check
-        const currentScore = (scores[playerId] || 0) + 1;
+      setIsSubmitting(true);
+      try {
+        // Get the current word
+        const currentWord = board[currentRow].join('').toLowerCase();
         
-        // Update player's score on backend
-        await updatePlayerScore(playerId, 1);
-        
-        if (currentScore >= 5) {
-          // Set game over state in the room
-          if (roomCode) {
-            try {
-              await fetch('/api/room/gameover', {
-                method: 'PUT',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                  roomCode, 
-                  playerId,
-                  winner: playerId
-                }),
-              });
-            } catch (error) {
-              console.error('Error setting game over:', error);
-            }
-          }
-        } else {
-          // Show success notification
-          toast.success('CORRECT!', {
-            description: solution.toUpperCase(),
+        // Check if the word is valid
+        const isValid = await isValidWord(currentWord);
+        if (!isValid) {
+          // Show toast notification for invalid word
+          toast.error('INVALID WORD', {
+            description: 'TRY AGAIN',
           });
+          return;
+        }
+        
+        // Check against the solution and get letter statuses
+        // Check if game is properly initialized before processing
+        if (!words || words.length === 0 || currentWordIndex >= words.length || currentWordIndex < 0) {
+          console.error(`Game not properly initialized: words length = ${words?.length || 0}, currentWordIndex = ${currentWordIndex}`);
+          return; // Exit early if game isn't properly initialized
+        }
+        
+        const solution = words[currentWordIndex];
+        // Add safety check to ensure solution exists before processing
+        if (!solution) {
+          console.error(`No solution found for word index ${currentWordIndex}, available words: ${words.length}`);
+          return; // Exit early if solution doesn't exist yet
+        }
+        
+        const letterStatuses = getLetterStatuses(currentWord, solution);
+        
+        // Mark this row as revealed with proper statuses
+        const newRevealed = [...revealed];
+        newRevealed[currentRow] = [...letterStatuses];
+        setRevealed(newRevealed);
+        
+        // Update key statuses based on the solution
+        const newUsedKeys = {...usedKeys};
+        board[currentRow].forEach((letter, index) => {
+          if (letter) {
+            const status = letterStatuses[index];
+            if (status) {  // Ensure status exists before processing
+              // Only update status if it's better than the current one
+              if (!newUsedKeys[letter] || 
+                  (newUsedKeys[letter] === 'absent' && status !== 'absent') ||
+                  (newUsedKeys[letter] === 'present' && status === 'correct')) {
+                newUsedKeys[letter] = status;
+              }
+            }
+          }
+        });
+        setUsedKeys(newUsedKeys);
+        
+        // Check if the word was guessed correctly
+        if (currentWord === solution.toLowerCase()) {
+          // Calculate what the new score should be based on current state for win condition check
+          const currentScore = (scores[playerId] || 0) + 1;
+          
+          // Update player's score on backend
+          await updatePlayerScore(playerId, 1);
+          
+          if (currentScore >= 5) {
+            // Set game over state in the room
+            if (roomCode) {
+              try {
+                await fetch('/api/room/gameover', {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ 
+                    roomCode, 
+                    playerId,
+                    winner: playerId
+                  }),
+                });
+              } catch (error) {
+                console.error('Error setting game over:', error);
+              }
+            }
+          } else {
+            // Show success notification
+            toast.success('CORRECT!', {
+              description: solution.toUpperCase(),
+            });
+            
+            // Move to next word
+            if (currentWordIndex < words.length - 1) {
+              setCurrentWordIndex(currentWordIndex + 1);
+              // Reset for the new word
+              resetCurrentRow();
+            } else {
+              // Game is over, all words have been completed
+              // This shouldn't happen in normal gameplay since it's a race to 5 points
+              // But if all words are done before anyone reaches 5, set game over
+              if (roomCode) {
+                try {
+                  await fetch('/api/room/gameover', {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                      roomCode, 
+                      playerId,
+                      winner: null // No winner if time runs out
+                    }),
+                  });
+                } catch (error) {
+                  console.error('Error setting game over:', error);
+                }
+              }
+            }
+          }
+        } else if (currentRow === MAX_ATTEMPTS - 1) {
+          // Player has used all attempts for this word
+          if (solution) {
+            toast.error('THE WORD WAS', {
+              description: solution.toUpperCase(),
+            });
+          }
           
           // Move to next word
           if (currentWordIndex < words.length - 1) {
@@ -340,7 +379,7 @@ export default function RaceRoomPage() {
             // Reset for the new word
             resetCurrentRow();
           } else {
-            // Game is over, all words have been completed
+            // Game is over, all words attempted
             // This shouldn't happen in normal gameplay since it's a race to 5 points
             // But if all words are done before anyone reaches 5, set game over
             if (roomCode) {
@@ -361,46 +400,13 @@ export default function RaceRoomPage() {
               }
             }
           }
-        }
-      } else if (currentRow === MAX_ATTEMPTS - 1) {
-        // Player has used all attempts for this word
-        if (solution) {
-          toast.error('THE WORD WAS', {
-            description: solution.toUpperCase(),
-          });
-        }
-        
-        // Move to next word
-        if (currentWordIndex < words.length - 1) {
-          setCurrentWordIndex(currentWordIndex + 1);
-          // Reset for the new word
-          resetCurrentRow();
         } else {
-          // Game is over, all words attempted
-          // This shouldn't happen in normal gameplay since it's a race to 5 points
-          // But if all words are done before anyone reaches 5, set game over
-          if (roomCode) {
-            try {
-              await fetch('/api/room/gameover', {
-                method: 'PUT',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                  roomCode, 
-                  playerId,
-                  winner: null // No winner if time runs out
-                }),
-              });
-            } catch (error) {
-              console.error('Error setting game over:', error);
-            }
-          }
+          // Move to next row
+          setCurrentRow(currentRow + 1);
+          setCurrentCol(0);
         }
-      } else {
-        // Move to next row
-        setCurrentRow(currentRow + 1);
-        setCurrentCol(0);
+      } finally {
+        setIsSubmitting(false);
       }
     } else if (key === 'Backspace') {
       if (currentCol > 0) {
@@ -418,14 +424,14 @@ export default function RaceRoomPage() {
         setCurrentCol(currentCol + 1);
       }
     }
-  }, [gameOver, status, WORD_LENGTH, MAX_ATTEMPTS, board, currentRow, currentCol, words, currentWordIndex, scores, playerId, roomCode, revealed, usedKeys, updatePlayerScore, resetCurrentRow]);
+  }, [gameOver, status, WORD_LENGTH, MAX_ATTEMPTS, board, currentRow, currentCol, words, currentWordIndex, scores, playerId, roomCode, revealed, usedKeys, updatePlayerScore, resetCurrentRow, isSubmitting]);
 
   // Handle physical keyboard events
   useEffect(() => {
     if (status !== 'in-progress' || gameOver) return;
     
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || isSubmitting) return;
       
       if (/^[a-zA-Z]$/.test(e.key) && e.key.length === 1) {
         handleKeyPress(e.key.toUpperCase());
@@ -438,7 +444,7 @@ export default function RaceRoomPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentRow, currentCol, gameOver, status, handleKeyPress]);
+  }, [currentRow, currentCol, gameOver, status, handleKeyPress, isSubmitting]);
 
   const handleLeaveRoom = () => {
     leaveRoom();

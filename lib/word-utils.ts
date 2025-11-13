@@ -1,7 +1,16 @@
-// We'll fetch the word lists dynamically at runtime
+// We'll fetch the word lists dynamically at runtime and cache them
+let validWordsCache: string[] | null = null;
+let wordleWordsCache: string[] | null = null;
 
 // Function to load and return the word lists
 export async function getWordLists() {
+  if (validWordsCache && wordleWordsCache) {
+    return {
+      validWords: validWordsCache,
+      wordleWords: wordleWordsCache,
+    };
+  }
+
   // Load the files - they're now in the public directory
   const validWordsResponse = await fetch('/valid-words.txt');
   const wordleWordsResponse = await fetch('/wordle-words.txt');
@@ -17,6 +26,9 @@ export async function getWordLists() {
     .map(word => word.trim().toLowerCase())
     .filter(word => word.length > 0 && word.length === 5); // Only 5-letter words
   
+  validWordsCache = validWordsList;
+  wordleWordsCache = wordleWordsList;
+
   return {
     validWords: validWordsList,
     wordleWords: wordleWordsList
