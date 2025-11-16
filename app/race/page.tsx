@@ -102,7 +102,7 @@ export default function RaceModePage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
-      <Header />
+      <Header subtitle="Race Mode" />
       <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
         <div className="w-full max-w-2xl">
           <Card className="border border-gray-700">
@@ -117,16 +117,21 @@ export default function RaceModePage() {
                 <div>
                   <label htmlFor="roomCode" className="text-sm font-medium">Room Code</label>
                   <div className="flex gap-2 mt-1">
-                    <Input 
-                      id="roomCode" 
-                      placeholder="Enter 5-digit room code" 
+                    <Input
+                      id="roomCode"
+                      placeholder="Enter 5-digit room code"
                       className="flex-1"
                       value={roomCodeInput}
                       onChange={(e) => setRoomCodeInput(e.target.value.replace(/\D/g, '').slice(0, 5))}
                       maxLength={5}
                       disabled={isCreating} // Disable input when creating room
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !isJoining && !isCreating) {
+                          handleJoinRoom();
+                        }
+                      }}
                     />
-                    <Button onClick={handleJoinRoom} disabled={isJoining || isCreating}>
+                    <Button onClick={handleJoinRoom} disabled={isJoining || isCreating} className="min-w-[100px]">
                       {isJoining ? 'Joining...' : 'Join'}
                     </Button>
                   </div>

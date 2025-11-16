@@ -309,7 +309,7 @@ export default function TimeLimitPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
-      <Header />
+      <Header subtitle="Time Limit Mode" />
       <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
         <div className="w-full max-w-4xl">
           {/* Responsive layout: side-by-side on desktop, stacked on mobile */}

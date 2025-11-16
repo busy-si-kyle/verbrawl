@@ -453,6 +453,11 @@ export default function RaceRoomPage() {
 
   // Wait until we've received the first status update to prevent flickering
   if (!hasReceivedStatusUpdate) {
+    const handleCancel = () => {
+      leaveRoom();
+      router.push('/race');
+    };
+
     return (
       <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
         <Header subtitle="Race Mode" />
@@ -478,6 +483,11 @@ export default function RaceRoomPage() {
                       <div className="text-lg font-semibold">{scores[playerId] || 0}</div>
                     </div>
                   </div>
+                  <div className="pt-4">
+                    <Button variant="outline" onClick={handleCancel}>
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -498,18 +508,12 @@ export default function RaceRoomPage() {
             <Card className="border border-gray-700">
               <CardHeader className="text-center">
                 <CardTitle className="text-2xl sm:text-3xl sr-only">Race Mode</CardTitle>
-                <CardDescription>
-                  Room Code: <span className="font-mono font-bold">{roomCode}</span>
+                <CardDescription className="text-4xl sm:text-5xl font-mono font-bold">
+                  {roomCode}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="text-center">
-                  <p className="mb-2 text-lg">
-                    {status === 'waiting' 
-                      ? `Waiting for another player... (${players.length}/2)` 
-                      : 'Starting soon!'}
-                  </p>
-                  
                   <div className="mb-4 min-h-[120px] flex items-center justify-center">
                     {status === 'countdown' ? (
                       <div className="text-3xl sm:text-4xl font-bold text-primary transition-opacity duration-300">
@@ -519,7 +523,7 @@ export default function RaceRoomPage() {
                       <div className="text-6xl font-bold text-primary transition-opacity duration-100"></div>
                     )}
                   </div>
-                  
+
                   {/* Consistent UI elements to prevent shuffling */}
                   <div className="space-y-4">
                     <div className="flex justify-between min-h-[50px] items-center">
@@ -563,15 +567,18 @@ export default function RaceRoomPage() {
               <Card className="border border-gray-700">
                 <CardContent className="space-y-6">
                   <div className="text-center py-8">
-                    <h3 className="text-2xl font-bold mb-4">Game Over!</h3>
-                    <p className="text-lg mb-6">
-                      {roomWinner === playerId 
-                        ? 'Congratulations! You reached 5 points first!' 
-                        : roomWinner 
-                          ? 'Game over! Opponent reached 5 points first.' 
-                          : 'Game\'s up!'}
-                    </p>
-                    <Button onClick={handleLeaveRoom}>Back to Lobby</Button>
+                    {roomWinner === playerId || (!roomWinner && scores[playerId] >= 5) ? (
+                      <>
+                        <h3 className="text-2xl font-bold mb-2">You Won!</h3>
+                        <p className="text-lg mb-6">You reached 5 points first</p>
+                      </>
+                    ) : (
+                      <>
+                        <h3 className="text-2xl font-bold mb-2">You Lost!</h3>
+                        <p className="text-lg mb-6">Opponent reached 5 points first</p>
+                      </>
+                    )}
+                    <Button onClick={handleLeaveRoom}>Return to Lobby</Button>
                   </div>
                 </CardContent>
               </Card>
