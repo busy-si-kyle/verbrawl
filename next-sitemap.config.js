@@ -1,6 +1,6 @@
 /** @type {import('next-sitemap').IConfig} */
 module.exports = {
-  siteUrl: process.env.SITE_URL || 'http://localhost:3000', // Replace with your production domain
+  siteUrl: process.env.SITE_URL || 'https://verbrawl.vercel.app', // Replace with your production domain
   generateRobotsTxt: true, // Generate robots.txt file
   changefreq: 'daily',
   priority: 0.7,
