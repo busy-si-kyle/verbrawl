@@ -21,8 +21,11 @@ export const metadata: Metadata = {
   title: "Verbrawl",
   description: "A Wordle-inspired game with time limits and race modes",
   icons: {
-    icon: '/verbrawl.svg',
-    shortcut: '/verbrawl.svg',
+    icon: [
+      { url: '/verbrawl.ico' },        // Standard favicon for search engines
+      { url: '/verbrawl.svg' },        // SVG for high-quality display
+    ],
+    shortcut: '/verbrawl.ico',
     apple: '/verbrawl.svg',
   },
 };
