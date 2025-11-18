@@ -25,7 +25,7 @@ export default function Home() {
                 </div>
                 <CardTitle className="text-xl sm:text-2xl">Time Limit Mode</CardTitle>
                 <CardDescription>
-                  Complete as many words as you can in 2 minutes
+                  Solve as many words in 2 minutes!
                 </CardDescription>
               </CardHeader>
               <CardContent className="pb-6">
@@ -42,7 +42,7 @@ export default function Home() {
                 </div>
                 <CardTitle className="text-xl sm:text-2xl">Race Mode</CardTitle>
                 <CardDescription>
-                  Challenge others to complete words faster
+                  Race to solve 5 words first!
                 </CardDescription>
               </CardHeader>
               <CardContent className="pb-6">

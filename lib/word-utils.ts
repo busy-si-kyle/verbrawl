@@ -47,11 +47,26 @@ export async function isWordleWord(word: string): Promise<boolean> {
   return wordleWords.includes(word.toLowerCase());
 }
 
-// Get a random sample of words from the wordle list
+// Get a random sample of words from the wordle list using partial Fisher-Yates shuffle
+// This is more efficient as we only shuffle the number of elements we need
 export async function getRandomWords(count: number): Promise<string[]> {
   const { wordleWords } = await getWordLists();
-  const shuffled = [...wordleWords].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, count);
+
+  // Make a copy of the wordleWords array to avoid modifying the original
+  const wordsCopy = [...wordleWords];
+  const totalWords = wordsCopy.length;
+
+  // Only perform the shuffle for the number of words we need
+  // This is a partial Fisher-Yates shuffle - we only shuffle the first 'count' elements
+  for (let i = 0; i < Math.min(count, totalWords); i++) {
+    // Generate a random index from i to the end of the array
+    const j = i + Math.floor(Math.random() * (totalWords - i));
+    // Swap elements at i and j
+    [wordsCopy[i], wordsCopy[j]] = [wordsCopy[j], wordsCopy[i]];
+  }
+
+  // Return the first 'count' shuffled words
+  return wordsCopy.slice(0, count);
 }
 
 // Compare a guess to the solution and return status for each letter

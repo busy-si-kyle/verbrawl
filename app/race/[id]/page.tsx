@@ -61,6 +61,7 @@ export default function RaceRoomPage() {
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [words, setWords] = useState<string[]>([]); // The 20 shared words
   const [gameInitialized, setGameInitialized] = useState(false); // Track if game is properly initialized
+  const [gameReady, setGameReady] = useState(false); // Track if game words are loaded and ready
 
   const [validWords, setValidWords] = useState<string[]>([]);
   const [wordleWords, setWordleWords] = useState<string[]>([]);
@@ -140,16 +141,17 @@ export default function RaceRoomPage() {
 
 
 
-  // Initialize game words when the game starts - use shared words from room
+  // Initialize game words during countdown phase to prevent race condition - use shared words from room
   useEffect(() => {
-    if (status === 'in-progress' && players.length > 0) {
+    // Start initializing game words as soon as we have players and are either in countdown or in-progress
+    if ((status === 'countdown' || status === 'in-progress') && players.length > 0) {
       // If no words have been generated yet, generate them and store in the room
       if (sharedWords.length === 0) {
         const generateAndStoreWords = async () => {
           // Only the first player or a designated player should generate words
           if (players[0] === playerId) { // Let the first player in the room generate words
             const newWords = await getRandomWords(20);
-            
+
             // Store the words in the room via API endpoint
             if (roomCode) {
               try {
@@ -158,10 +160,10 @@ export default function RaceRoomPage() {
                   headers: {
                     'Content-Type': 'application/json',
                   },
-                  body: JSON.stringify({ 
-                    roomCode, 
-                    playerId, 
-                    words: newWords 
+                  body: JSON.stringify({
+                    roomCode,
+                    playerId,
+                    words: newWords
                   }),
                 });
 
@@ -174,13 +176,17 @@ export default function RaceRoomPage() {
             }
           }
         };
-        
+
         generateAndStoreWords();
       } else if (JSON.stringify(sharedWords) !== JSON.stringify(words)) {
         // Use the shared words from the room provider
         setWords(sharedWords);
+        // Mark game as ready when words are loaded
+        if (sharedWords.length > 0) {
+          setGameReady(true);
+        }
       } // eslint-disable-line react-hooks/exhaustive-deps
-      
+
       // Load valid words for validation if not already loaded
       if (validWords.length === 0 || wordleWords.length === 0) {
         getWordLists().then(wordLists => {
@@ -188,6 +194,11 @@ export default function RaceRoomPage() {
           setWordleWords(wordLists.wordleWords);
         });
       }
+    }
+
+    // Also set game ready when we have words and they're properly loaded
+    if (status === 'in-progress' && words.length > 0) {
+      setGameReady(true);
     }
   }, [status, players, sharedWords, validWords.length, wordleWords.length, playerId, roomCode, words]);
 
@@ -243,7 +254,7 @@ export default function RaceRoomPage() {
 
   // Handle keyboard input for the Wordle grid
   const handleKeyPress = useCallback(async (key: string) => {
-    if (gameOver || status !== 'in-progress' || isSubmitting) return;
+    if (gameOver || status !== 'in-progress' || isSubmitting || !gameReady) return;
     
     if (key === 'Enter') {
       if (currentCol !== WORD_LENGTH) {
@@ -428,11 +439,11 @@ export default function RaceRoomPage() {
 
   // Handle physical keyboard events
   useEffect(() => {
-    if (status !== 'in-progress' || gameOver) return;
-    
+    if (status !== 'in-progress' || gameOver || !gameReady) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || isSubmitting) return;
-      
+
       if (/^[a-zA-Z]$/.test(e.key) && e.key.length === 1) {
         handleKeyPress(e.key.toUpperCase());
       } else if (e.key === 'Enter') {
@@ -444,7 +455,7 @@ export default function RaceRoomPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentRow, currentCol, gameOver, status, handleKeyPress, isSubmitting]);
+  }, [currentRow, currentCol, gameOver, status, gameReady, handleKeyPress, isSubmitting]);
 
   const handleLeaveRoom = () => {
     leaveRoom();

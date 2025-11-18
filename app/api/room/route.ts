@@ -60,10 +60,17 @@ export async function POST(request: NextRequest) {
 
     // Store room data in Redis
     await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
-    
+
     // Add room to active rooms set
-    await redis.sAdd(ROOMS_SET, roomCode);
-    
+    const addedToSet = await redis.sAdd(ROOMS_SET, roomCode);
+
+    // Log if the room was successfully added to the set
+    if (addedToSet > 0) {
+      console.log(`Room ${roomCode} added to active_rooms set during creation`);
+    } else {
+      console.warn(`Room ${roomCode} was already in active_rooms set during creation`);
+    }
+
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
     
@@ -149,7 +156,7 @@ export async function PUT(request: NextRequest) {
 
     // Update room data in Redis
     await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
-    
+
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
     

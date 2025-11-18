@@ -4,7 +4,7 @@ import { getRedisClient } from '@/lib/redis';
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const UPDATE_INTERVAL = 2000; // 2 seconds - more frequent for better score updates
+const UPDATE_INTERVAL = 500; // 0.5 seconds - more frequent for better score updates
 
 export const dynamic = 'force-dynamic';
 

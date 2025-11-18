@@ -54,16 +54,24 @@ export async function POST(request: NextRequest) {
     // If no players left, delete the room
     if (roomData.players.length === 0) {
       await redis.del(`${ROOM_PREFIX}${roomCode}`);
-      await redis.sRem('active_rooms', roomCode);
+      const removedRooms = await redis.sRem('active_rooms', roomCode);
+
+      // Log if we removed a room from the set (for debugging orphaned entries)
+      if (removedRooms > 0) {
+        console.log(`Removed room ${roomCode} from active_rooms set during leave`);
+      } else {
+        // The room wasn't in the active_rooms set, which indicates a potential inconsistency
+        console.warn(`Room ${roomCode} was not found in active_rooms set during leave`);
+      }
     } else {
       // Otherwise, update the room data in Redis
       await redis.setEx(`${ROOM_PREFIX}${roomCode}`, 60 * 15, JSON.stringify(roomData));
     }
-    
+
     // Remove player-to-room mapping
     await redis.del(`${PLAYER_PREFIX}${playerId}`);
-    
-    return new Response(JSON.stringify({ 
+
+    return new Response(JSON.stringify({
       message: 'Successfully left room',
       playersLeft: roomData.players.length
     }), {
