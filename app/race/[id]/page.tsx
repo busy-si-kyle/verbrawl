@@ -528,7 +528,7 @@ export default function RaceRoomPage() {
                   <div className="mb-4 min-h-[120px] flex items-center justify-center">
                     {status === 'countdown' ? (
                       <div className="text-3xl sm:text-4xl font-bold text-primary transition-opacity duration-300">
-                        Get ready!
+                        {Math.ceil((countdownRemaining || 10000) / 1000)}
                       </div>
                     ) : (
                       <div className="text-6xl font-bold text-primary transition-opacity duration-100"></div>
