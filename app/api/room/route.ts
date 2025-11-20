@@ -15,8 +15,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { playerId } = await request.json();
-    
+    const { playerId, nickname } = await request.json();
+
     if (!playerId) {
       return new Response(JSON.stringify({ error: 'Player ID is required' }), {
         status: 400,
@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
     // Create the room with the first player
     const roomData = {
       players: [playerId],
+      playerNicknames: { [playerId]: nickname || '' }, // Store actual nickname (may be empty)
       scores: { [playerId]: 0 }, // Initialize scores for the first player
       words: [], // Will be populated when game starts
       gameOver: false, // Track if game has ended
@@ -74,8 +75,10 @@ export async function POST(request: NextRequest) {
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
     
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       roomCode,
+      players: roomData.players,
+      playerNicknames: roomData.playerNicknames || {},
       message: 'Room created successfully',
       status: roomData.status
     }), {
@@ -99,8 +102,8 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
-    const { roomCode, playerId } = await request.json();
-    
+    const { roomCode, playerId, nickname } = await request.json();
+
     if (!roomCode || !playerId) {
       return new Response(JSON.stringify({ error: 'Room code and player ID are required' }), {
         status: 400,
@@ -138,7 +141,7 @@ export async function PUT(request: NextRequest) {
 
     // Add player to room
     roomData.players.push(playerId);
-    
+
     // Initialize score for the new player if scores object exists
     if (roomData.scores) {
       roomData.scores[playerId] = 0;
@@ -146,6 +149,14 @@ export async function PUT(request: NextRequest) {
       // Fallback: initialize scores object if it doesn't exist
       roomData.scores = { [playerId]: 0 };
     }
+
+    // Initialize or update player nicknames object to ensure both player's nicknames are preserved
+    if (!roomData.playerNicknames) {
+      // Fallback initialization if for some reason playerNicknames doesn't exist
+      roomData.playerNicknames = {};
+    }
+    // Add the joining player's actual nickname (may be empty)
+    roomData.playerNicknames[playerId] = nickname || '';
     
     // If this is the second player, start the countdown
     if (roomData.players.length === 2) {
@@ -160,9 +171,10 @@ export async function PUT(request: NextRequest) {
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
     
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       roomCode,
       players: roomData.players,
+      playerNicknames: roomData.playerNicknames || {},
       scores: roomData.scores || {},
       words: roomData.words || [],
       gameOver: roomData.gameOver || false,
@@ -194,7 +206,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const roomCode = searchParams.get('roomCode');
     const playerId = searchParams.get('playerId');
-    
+
     if (!roomCode || !playerId) {
       return new Response(JSON.stringify({ error: 'Room code and player ID are required' }), {
         status: 400,
@@ -204,7 +216,7 @@ export async function GET(request: NextRequest) {
 
     // Get room data
     const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
-    
+
     if (!roomDataString) {
       return new Response(JSON.stringify({ error: 'Room not found' }), {
         status: 404,
@@ -213,7 +225,7 @@ export async function GET(request: NextRequest) {
     }
 
     const roomData = JSON.parse(roomDataString);
-    
+
     // Check if the player is part of this room
     if (!roomData.players.includes(playerId)) {
       return new Response(JSON.stringify({ error: 'Player not in this room' }), {
@@ -221,10 +233,11 @@ export async function GET(request: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    
-    return new Response(JSON.stringify({ 
+
+    return new Response(JSON.stringify({
       roomCode,
       players: roomData.players,
+      playerNicknames: roomData.playerNicknames || {},
       scores: roomData.scores || {},
       words: roomData.words || [],
       gameOver: roomData.gameOver || false,

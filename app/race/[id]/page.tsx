@@ -17,15 +17,16 @@ export default function RaceRoomPage() {
   const params = useParams();
   const roomCode = params.id as string;
   const router = useRouter();
-  const { 
-    status, 
-    players, 
+  const {
+    status,
+    players,
+    playerNicknames,
     scores,
     words: sharedWords, // Get shared words from room provider
     gameOver: roomGameOver, // Get game over status from room provider
     winner: roomWinner, // Get winner from room provider
-    countdownRemaining, 
-    getRoomInfo, 
+    countdownRemaining,
+    getRoomInfo,
     leaveRoom
   } = useRoom();
   const [isJoining, setIsJoining] = useState(true); // Set to true initially since we're trying to join
@@ -462,6 +463,24 @@ export default function RaceRoomPage() {
     router.push('/race');
   };
 
+  // Helper function to get player display name
+  const getPlayerDisplayName = (targetPlayerId: string) => {
+    // Get the stored nickname for this player
+    const storedNickname = playerNicknames[targetPlayerId];
+
+    // If the stored nickname exists and is not empty, use it
+    if (storedNickname && storedNickname.trim() !== '') {
+      return storedNickname;
+    }
+
+    // If no nickname was provided, use contextual display based on current player
+    if (targetPlayerId === playerId) {  // Compare against the component's playerId state
+      return 'You';
+    } else {
+      return 'Opponent';
+    }
+  };
+
   // Wait until we've received the first status update to prevent flickering
   if (!hasReceivedStatusUpdate) {
     const handleCancel = () => {
@@ -487,7 +506,7 @@ export default function RaceRoomPage() {
                   {/* Placeholder for player indicators and scores during loading */}
                   <div className="flex flex-col items-center space-y-1">
                     <div className="px-4 py-2 bg-secondary rounded-lg">
-                      You
+                      {getPlayerDisplayName(playerId)}
                     </div>
                     <div className="text-center">
                       <div className="text-sm text-muted-foreground">Score</div>
@@ -541,7 +560,7 @@ export default function RaceRoomPage() {
                       {players.map((player) => (
                         <div key={player} className="flex flex-col items-center space-y-1">
                           <div className="px-4 py-2 bg-secondary rounded-lg">
-                            {player === playerId ? 'You' : 'Opponent'}
+                            {getPlayerDisplayName(player)}
                           </div>
                           {/* Score display for each player */}
                           <div className="text-center">
@@ -581,12 +600,12 @@ export default function RaceRoomPage() {
                     {roomWinner === playerId || (!roomWinner && scores[playerId] >= 5) ? (
                       <>
                         <h3 className="text-2xl font-bold mb-2">You Won!</h3>
-                        <p className="text-lg mb-6">You reached 5 points first</p>
+                        <p className="text-lg mb-6">{getPlayerDisplayName(playerId)} reached 5 points first</p>
                       </>
                     ) : (
                       <>
                         <h3 className="text-2xl font-bold mb-2">You Lost!</h3>
-                        <p className="text-lg mb-6">Opponent reached 5 points first</p>
+                        <p className="text-lg mb-6">{roomWinner ? getPlayerDisplayName(roomWinner) : 'Opponent'} reached 5 points first</p>
                       </>
                     )}
                     <Button onClick={handleLeaveRoom}>Return to Lobby</Button>
@@ -606,14 +625,14 @@ export default function RaceRoomPage() {
                           key={player} 
                           className="flex flex-col items-center space-y-1"
                         >
-                          <div 
+                          <div
                             className={`px-4 py-2 rounded-lg ${
-                              player === localStorage.getItem('player-id') 
-                                ? 'bg-primary text-primary-foreground' 
+                              player === localStorage.getItem('player-id')
+                                ? 'bg-primary text-primary-foreground'
                                 : 'bg-secondary'
                             }`}
                           >
-                            {player === localStorage.getItem('player-id') ? 'You' : 'Opponent'}
+                            {getPlayerDisplayName(player)}
                           </div>
                           {/* Score display for each player */}
                           <div className="text-center">
@@ -671,7 +690,7 @@ export default function RaceRoomPage() {
                 {/* Placeholder for player indicators and scores during connection */}
                 <div className="flex flex-col items-center space-y-1">
                   <div className="px-4 py-2 bg-secondary rounded-lg">
-                    You
+                    {getPlayerDisplayName(playerId)}
                   </div>
                   <div className="text-center">
                     <div className="text-sm text-muted-foreground">Score</div>

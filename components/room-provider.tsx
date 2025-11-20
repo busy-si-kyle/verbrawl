@@ -6,6 +6,7 @@ interface RoomContextType {
   roomCode: string | null;
   status: 'none' | 'waiting' | 'countdown' | 'in-progress';
   players: string[];
+  playerNicknames: Record<string, string>;
   scores: Record<string, number>;
   words: string[];
   gameOver: boolean;
@@ -25,6 +26,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [status, setStatus] = useState<'none' | 'waiting' | 'countdown' | 'in-progress'>('none');
   const [players, setPlayers] = useState<string[]>([]);
+  const [playerNicknames, setPlayerNicknames] = useState<Record<string, string>>({});
   const [scores, setScores] = useState<Record<string, number>>({});
   const [words, setWords] = useState<string[]>([]);
   const [gameOver, setGameOver] = useState<boolean>(false);
@@ -68,6 +70,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         const data = JSON.parse(event.data);
         setRoomCode(data.roomCode);
         setPlayers(data.players);
+        if (data.playerNicknames) {
+          setPlayerNicknames(data.playerNicknames);
+        }
         if (data.scores) {
           setScores(data.scores);
         }
@@ -217,14 +222,20 @@ export function RoomProvider({ children }: { children: ReactNode }) {
 
   const createRoom = useCallback(async (roomPlayerId: string) => {
     if (!roomPlayerId) return false;
-    
+
+    // Get the nickname from localStorage
+    const nickname = typeof window !== 'undefined' ? localStorage.getItem('player-nickname') || 'You' : 'You';
+
     try {
       const response = await fetch('/api/room', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ playerId: roomPlayerId }),
+        body: JSON.stringify({
+          playerId: roomPlayerId,
+          nickname: nickname
+        }),
       });
 
       const data = await response.json();
@@ -233,6 +244,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setRoomCode(data.roomCode);
         setStatus(data.status);
         setPlayers(data.players || [roomPlayerId]);
+        // Set initial player nicknames from the API response
+        setPlayerNicknames(data.playerNicknames || { [roomPlayerId]: nickname });
         // Set initial scores from the API response
         setScores(data.scores || { [roomPlayerId]: 0 });
         // Set initial words and game state
@@ -255,14 +268,21 @@ export function RoomProvider({ children }: { children: ReactNode }) {
 
   const joinRoom = useCallback(async (roomCode: string, roomPlayerId: string) => {
     if (!roomCode || !roomPlayerId) return false;
-    
+
+    // Get the nickname from localStorage
+    const nickname = typeof window !== 'undefined' ? localStorage.getItem('player-nickname') || 'Opponent' : 'Opponent';
+
     try {
       const response = await fetch('/api/room', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ roomCode, playerId: roomPlayerId }),
+        body: JSON.stringify({
+          roomCode,
+          playerId: roomPlayerId,
+          nickname: nickname
+        }),
       });
 
       const data = await response.json();
@@ -271,6 +291,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setRoomCode(data.roomCode);
         setStatus(data.status);
         setPlayers(data.players);
+        // Set player nicknames from the API response
+        setPlayerNicknames(data.playerNicknames || {});
         // Set scores, words, and game state from the API response
         setScores(data.scores || {});
         setWords(data.words || []);
@@ -294,7 +316,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
 
   const getRoomInfo = useCallback(async (roomCode: string, roomPlayerId: string) => {
     if (!roomCode || !roomPlayerId) return false;
-    
+
     try {
       const response = await fetch(`/api/room?roomCode=${roomCode}&playerId=${roomPlayerId}`, {
         method: 'GET',
@@ -306,6 +328,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setRoomCode(data.roomCode);
         setStatus(data.status);
         setPlayers(data.players);
+        // Set player nicknames from the API response
+        setPlayerNicknames(data.playerNicknames || {});
         // Set scores, words, and game state from the API response
         setScores(data.scores || {});
         setWords(data.words || []);
@@ -366,6 +390,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setRoomCode(null);
     setStatus('none');
     setPlayers([]);
+    setPlayerNicknames({}); // Reset player nicknames when resetting room
     setScores({}); // Reset scores when resetting room
     setWords([]); // Reset words when resetting room
     setGameOver(false); // Reset game over state when resetting room
@@ -393,6 +418,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     roomCode,
     status,
     players,
+    playerNicknames,
     scores,
     words,
     gameOver,

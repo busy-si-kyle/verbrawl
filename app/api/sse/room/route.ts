@@ -92,6 +92,7 @@ export async function GET(req: NextRequest) {
           let responseData = {
             roomCode,
             players: roomData.players,
+            playerNicknames: roomData.playerNicknames || {},
             scores: roomData.scores || {},
             words: roomData.words || [],
             gameOver: roomData.gameOver || false,
