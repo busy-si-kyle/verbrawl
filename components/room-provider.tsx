@@ -35,9 +35,15 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [serverCountdownStart, setServerCountdownStart] = useState<number | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
-  
+
   // Ref to hold the connection function to avoid closure issues
   const connectToRoomUpdatesRef = useRef<((roomCode: string, connectionPlayerId: string) => void) | null>(null);
+  const roomCodeRef = useRef<string | null>(null);
+
+  // Keep room code ref in sync
+  useEffect(() => {
+    roomCodeRef.current = roomCode;
+  }, [roomCode]);
 
   // Initialize player ID from localStorage or create new one
   const [storedPlayerId] = useState<string | null>(() => {
@@ -86,7 +92,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
           setWinner(data.winner);
         }
         setStatus(data.status as 'none' | 'waiting' | 'countdown' | 'in-progress');
-        
+
         // Handle countdown state with server sync
         if (data.status === 'countdown') {
           if ('remainingCountdown' in data) {
@@ -99,7 +105,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
               const elapsedSinceTimestamp = now - data.timestamp;
               const accurateRemaining = Math.max(0, data.remainingCountdown - elapsedSinceTimestamp);
               setCountdownRemaining(accurateRemaining);
-              
+
               // Calculate when the countdown actually started
               const countdownStart = now - (countdownDuration - accurateRemaining);
               setServerCountdownStart(countdownStart);
@@ -119,7 +125,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
           setCountdownRemaining(null);
           setServerCountdownStart(null);
         }
-        
+
         // Always update countdownRemaining when present in the data
         if ('remainingCountdown' in data && data.status === 'countdown') {
           setCountdownRemaining(data.remainingCountdown);
@@ -133,13 +139,18 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       console.error('SSE error for room updates:', error);
       // Close the erroring connection to prevent further errors
       newEventSource.close();
-      
-      // Try to reconnect after a delay using the ref
+
+      // Only try to reconnect if we're still in a room (roomCode exists)
+      // This prevents reconnection attempts after leaving
       setTimeout(() => {
-        if (roomCode && storedPlayerId && connectToRoomUpdatesRef.current) {
+        // Check if we're still in the same room before reconnecting
+        if (roomCodeRef.current === roomCode && storedPlayerId && connectToRoomUpdatesRef.current) {
+          console.log('Attempting to reconnect SSE for room:', roomCode);
           connectToRoomUpdatesRef.current(roomCode, storedPlayerId);
+        } else {
+          console.log('Not reconnecting SSE - room code changed or cleared');
         }
-      }, 1000); // Faster reconnect time
+      }, 1000);
     };
 
     // Add connection event for debugging
@@ -165,7 +176,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -180,7 +191,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       interval = setInterval(() => {
         const elapsed = Date.now() - serverCountdownStart;
         const clientSideRemaining = Math.max(0, 10000 - elapsed); // 10-second countdown as used in SSE
-        
+
         if (clientSideRemaining <= 0) {
           // Countdown finished, update status
           setStatus('in-progress');
@@ -214,7 +225,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -355,7 +366,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     if (eventSource) {
       eventSource.close();
     }
-    
+
     // If we have a room code and player ID, make an API call to properly leave the room
     if (roomCode && storedPlayerId) {
       try {
@@ -370,7 +381,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         console.error('Error leaving room:', error);
       }
     }
-    
+
     setRoomCode(null);
     setStatus('none');
     setPlayers([]);
@@ -405,14 +416,15 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setStatus('in-progress');
   }, []);
 
-  // Cleanup on unmount
+  // Cleanup on unmount only
   useEffect(() => {
     return () => {
       if (eventSource) {
+        console.log('Component unmounting, closing SSE connection');
         eventSource.close();
       }
     };
-  }, [eventSource]);
+  }, []); // Empty deps - only run on mount/unmount
 
   const value = {
     roomCode,

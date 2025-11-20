@@ -17,6 +17,7 @@ export default function RaceRoomPage() {
   const params = useParams();
   const roomCode = params.id as string;
   const router = useRouter();
+
   const {
     status,
     players,
@@ -496,27 +497,21 @@ export default function RaceRoomPage() {
       }
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        // Optional: You might want to consider if hiding the tab should trigger a leave
-        // For a real-time game, it often implies the user is distracted or leaving
-        // But for now, we'll stick to explicit unload/close events to avoid accidental disconnects
-        // handleUnload(); 
-      }
-    };
-
     window.addEventListener('beforeunload', handleUnload);
-    // document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
-      // document.removeEventListener('visibilitychange', handleVisibilityChange);
 
-      // DO NOT call handleUnload() here - it causes the user to leave the room
-      // when navigating between pages (e.g., from /race to /race/[roomCode]).
-      // The beforeunload event handler will take care of actual page closures/refreshes.
+      // On component unmount (navigation away), send leave request
+      // This handles clicking logo, back button, etc.
+      // Skip if explicitly leaving via button (isLeavingRef.current === true)
+      // or if not in a room yet (status === 'none')
+      if (!isLeavingRef.current && roomCode && playerId && statusRef.current !== 'none') {
+        console.log(`Component unmounting for room ${roomCode}, status: ${statusRef.current}, sending leave request`);
+        handleUnload();
+      }
     };
-  }, [roomCode, playerId]);
+  }, [roomCode, playerId]); // Don't include status - use statusRef instead to avoid cleanup on status changes
 
   // Helper function to get player display name
   const getPlayerDisplayName = (targetPlayerId: string) => {

@@ -52,12 +52,13 @@ export async function POST(request: NextRequest) {
       delete roomData.scores[playerId];
     }
 
-    // If game is in progress and a player leaves, end the game (forfeit)
-    if (roomData.status === 'in-progress' && roomData.players.length > 0) {
+    // If game is in countdown or in-progress and a player leaves, end the game (opponent wins by forfeit)
+    if ((roomData.status === 'countdown' || roomData.status === 'in-progress') && roomData.players.length > 0) {
       roomData.gameOver = true;
+      roomData.status = 'in-progress'; // Keep status as in-progress to show game over UI
       // The remaining player is the winner
       roomData.winner = roomData.players[0];
-      console.log(`Player ${playerId} left in-progress game. Winner is ${roomData.winner}`);
+      console.log(`Player ${playerId} abandoned during ${roomData.status}. Winner by forfeit: ${roomData.winner}`);
     }
 
     // If no players left, delete the room
