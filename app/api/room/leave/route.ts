@@ -6,7 +6,7 @@ const PLAYER_PREFIX = 'player:';
 
 export async function POST(request: NextRequest) {
   const redis = getRedisClient();
-  
+
   // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const { roomCode, playerId } = await request.json();
-    
+
     if (!roomCode || !playerId) {
       return new Response(JSON.stringify({ error: 'Room code and player ID are required' }), {
         status: 400,
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     // Get room data
     const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
-    
+
     if (!roomDataString) {
       return new Response(JSON.stringify({ error: 'Room not found' }), {
         status: 404,
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     const roomData = JSON.parse(roomDataString);
-    
+
     // Find and remove the player from the room
     const playerIndex = roomData.players.indexOf(playerId);
     if (playerIndex === -1) {
@@ -45,23 +45,23 @@ export async function POST(request: NextRequest) {
 
     // Remove player from the room
     roomData.players.splice(playerIndex, 1);
-    
+
     // Remove player's score if scores exist
     if (roomData.scores) {
       delete roomData.scores[playerId];
     }
-    
+
     // If no players left, delete the room
     if (roomData.players.length === 0) {
       await redis.del(`${ROOM_PREFIX}${roomCode}`);
-      const removedRooms = await redis.sRem('active_rooms', roomCode);
+      const removedRooms = await redis.zRem('active_rooms', roomCode);
 
       // Log if we removed a room from the set (for debugging orphaned entries)
       if (removedRooms > 0) {
-        console.log(`Removed room ${roomCode} from active_rooms set during leave`);
+        console.log(`Removed room ${roomCode} from active_rooms ZSET during leave`);
       } else {
         // The room wasn't in the active_rooms set, which indicates a potential inconsistency
-        console.warn(`Room ${roomCode} was not found in active_rooms set during leave`);
+        console.warn(`Room ${roomCode} was not found in active_rooms ZSET during leave`);
       }
     } else {
       // Otherwise, update the room data in Redis

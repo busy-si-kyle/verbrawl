@@ -1,6 +1,6 @@
-// app/api/sse/player-count/route.ts
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
+import { countActiveSessions } from '@/lib/player-count-utils';
 
 const ACTIVE_SESSIONS_SET = 'active_sessions';
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const redis = getRedisClient();
-  
+
   // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
@@ -19,23 +19,22 @@ export async function GET(req: NextRequest) {
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
-      
+
       let isClosed = false;
-      
+
       // Function to send player count update
       const sendUpdate = async () => {
         try {
           // Don't send updates if connection is already closed
           if (isClosed) return;
-          
-          // Get the count of sessions in the set directly (may include expired sessions)
-          // This avoids expensive cleanup operations on every request
-          const rawCount = await redis.sCard(ACTIVE_SESSIONS_SET);
+
+          // Get the count of active sessions (automatically cleans up expired ones)
+          const activeCount = await countActiveSessions(redis);
           const data = {
-            playerCount: rawCount,
+            playerCount: activeCount,
             timestamp: Date.now()
           };
-          
+
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
           );
@@ -55,7 +54,7 @@ export async function GET(req: NextRequest) {
         try {
           // Don't send heartbeat if connection is already closed
           if (isClosed) return;
-          
+
           controller.enqueue(encoder.encode(`: heartbeat\n\n`));
         } catch (error) {
           console.error('Error sending heartbeat:', error);

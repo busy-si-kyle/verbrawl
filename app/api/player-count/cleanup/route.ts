@@ -1,7 +1,7 @@
 // app/api/player-count/cleanup/route.ts
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
-import { cleanExpiredSessions } from '@/lib/player-count-utils';
+import { countActiveSessions } from '@/lib/player-count-utils';
 
 /**
  * Optional cleanup endpoint for background maintenance.
@@ -14,7 +14,7 @@ import { cleanExpiredSessions } from '@/lib/player-count-utils';
  */
 export async function POST(request: NextRequest) {
   const redis = getRedisClient();
-  
+
   // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
@@ -24,13 +24,13 @@ export async function POST(request: NextRequest) {
     // Get count before cleanup using the same method as the cleanup function
     const ACTIVE_SESSIONS_SET = 'active_sessions';
     const beforeCount = await redis.sCard(ACTIVE_SESSIONS_SET);
-    
+
     // Run cleanup and get accurate count (force cleanup for this maintenance endpoint)
-    const afterCount = await cleanExpiredSessions(redis, true);
-    
+    const afterCount = await countActiveSessions(redis);
+
     const cleaned = beforeCount - afterCount;
-    
-    return new Response(JSON.stringify({ 
+
+    return new Response(JSON.stringify({
       success: true,
       cleaned,
       before: beforeCount,
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Error cleaning up sessions:', error);
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       success: false,
       error: 'Internal server error'
     }), {

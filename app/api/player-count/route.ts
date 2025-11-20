@@ -1,14 +1,12 @@
-// app/api/player-count/route.ts
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
+import { countActiveSessions } from '@/lib/player-count-utils';
 
-const SESSION_PREFIX = 'session:';
 const ACTIVE_SESSIONS_SET = 'active_sessions';
-const SESSION_TTL = 60 * 5; // 5 minutes
 
 export async function GET(request: NextRequest) {
   const redis = getRedisClient();
-  
+
   // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
@@ -17,24 +15,22 @@ export async function GET(request: NextRequest) {
   try {
     // Get session ID from header
     const sessionId = request.headers.get('x-session-id');
-    
+
     // Only register session if a session ID is provided
     if (sessionId) {
-      const sessionKey = `${SESSION_PREFIX}${sessionId}`;
-      
-      // Redis SADD will not add duplicates, so this is safe to call multiple times
-      await redis.sAdd(ACTIVE_SESSIONS_SET, sessionId);
-      
-      // Set TTL for the individual session
-      await redis.setEx(sessionKey, SESSION_TTL, 'active');
+      // Add to Sorted Set with current timestamp as score
+      // This automatically handles updates (refreshing the timestamp)
+      await redis.zAdd(ACTIVE_SESSIONS_SET, {
+        score: Date.now(),
+        value: sessionId
+      });
     }
-    
-    // Get the count of sessions in the set directly (may include expired sessions)
-    // This avoids expensive cleanup operations on every request
-    const rawCount = await redis.sCard(ACTIVE_SESSIONS_SET);
-    
-    return new Response(JSON.stringify({ 
-      count: rawCount,
+
+    // Get the count of active sessions (automatically cleans up expired ones)
+    const activeCount = await countActiveSessions(redis);
+
+    return new Response(JSON.stringify({
+      count: activeCount,
       timestamp: Date.now()
     }), {
       status: 200,

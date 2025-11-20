@@ -4,11 +4,11 @@ import { getRedisClient } from '@/lib/redis';
 const ROOMS_SET = 'active_rooms';
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
-const ROOM_TTL = 60 * 15; // 15 minutes
+const ROOM_TTL = 90; // 90 seconds
 
 export async function POST(request: NextRequest) {
   const redis = getRedisClient();
-  
+
   // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     let roomCode: string | null = null;
     let isUnique = false;
     let attempts = 0;
-    
+
     while (!isUnique && attempts < 10) {
       const potentialRoomCode = Math.floor(10000 + Math.random() * 90000).toString();
       const roomExists = await redis.exists(`${ROOM_PREFIX}${potentialRoomCode}`);
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       }
       attempts++;
     }
-    
+
     if (!isUnique || roomCode === null) {
       return new Response(JSON.stringify({ error: 'Failed to generate unique room code' }), {
         status: 500,
@@ -62,19 +62,22 @@ export async function POST(request: NextRequest) {
     // Store room data in Redis
     await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
 
-    // Add room to active rooms set
-    const addedToSet = await redis.sAdd(ROOMS_SET, roomCode);
+    // Add room to active rooms set (ZSET) with current timestamp
+    const addedToSet = await redis.zAdd(ROOMS_SET, {
+      score: Date.now(),
+      value: roomCode
+    });
 
     // Log if the room was successfully added to the set
     if (addedToSet > 0) {
-      console.log(`Room ${roomCode} added to active_rooms set during creation`);
+      console.log(`Room ${roomCode} added to active_rooms ZSET during creation`);
     } else {
-      console.warn(`Room ${roomCode} was already in active_rooms set during creation`);
+      console.warn(`Room ${roomCode} was already in active_rooms ZSET during creation`);
     }
 
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
-    
+
     return new Response(JSON.stringify({
       roomCode,
       players: roomData.players,
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   const redis = getRedisClient();
-  
+
   if (!redis.isOpen) {
     await redis.connect();
   }
@@ -113,7 +116,7 @@ export async function PUT(request: NextRequest) {
 
     // Get room data
     const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
-    
+
     if (!roomDataString) {
       return new Response(JSON.stringify({ error: 'Room not found' }), {
         status: 404,
@@ -122,7 +125,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const roomData = JSON.parse(roomDataString);
-    
+
     // Check if room is already full
     if (roomData.players.length >= 2) {
       return new Response(JSON.stringify({ error: 'Room is already full' }), {
@@ -157,7 +160,7 @@ export async function PUT(request: NextRequest) {
     }
     // Add the joining player's actual nickname (may be empty)
     roomData.playerNicknames[playerId] = nickname || '';
-    
+
     // If this is the second player, start the countdown
     if (roomData.players.length === 2) {
       roomData.status = 'countdown';
@@ -168,9 +171,15 @@ export async function PUT(request: NextRequest) {
     // Update room data in Redis
     await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
 
+    // Refresh room activity timestamp in ZSET
+    await redis.zAdd(ROOMS_SET, {
+      score: Date.now(),
+      value: roomCode
+    });
+
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
-    
+
     return new Response(JSON.stringify({
       roomCode,
       players: roomData.players,
@@ -197,7 +206,7 @@ export async function PUT(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const redis = getRedisClient();
-  
+
   if (!redis.isOpen) {
     await redis.connect();
   }

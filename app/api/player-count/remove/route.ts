@@ -7,7 +7,7 @@ const ACTIVE_SESSIONS_SET = 'active_sessions';
 
 export async function POST(request: NextRequest) {
   const redis = getRedisClient();
-  
+
   // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
@@ -21,15 +21,14 @@ export async function POST(request: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    
+
     const sessionKey = `${SESSION_PREFIX}${sessionId}`;
-    
-    // Remove session from the active sessions set
-    await redis.sRem(ACTIVE_SESSIONS_SET, sessionId);
-    
-    // Delete the individual session key
-    await redis.del(sessionKey);
-    
+
+    // Remove session from the active sessions set (ZSET)
+    await redis.zRem(ACTIVE_SESSIONS_SET, sessionId);
+
+    // No need to delete individual key as we don't use it anymore
+
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

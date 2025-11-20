@@ -1,7 +1,7 @@
 // app/api/room/cleanup/route.ts
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
-import { cleanOrphanedRooms } from '@/lib/player-count-utils';
+import { countActiveRooms } from '@/lib/player-count-utils';
 
 /**
  * Optional cleanup endpoint for background maintenance.
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const beforeCount = await redis.sCard(ROOMS_SET);
 
     // Run cleanup and get accurate count (force cleanup for this maintenance endpoint)
-    const afterCount = await cleanOrphanedRooms(redis, true);
+    const afterCount = await countActiveRooms(redis);
 
     const cleaned = beforeCount - afterCount;
 
