@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
+import { ROOM_TTL } from '@/lib/constants';
 
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
@@ -51,8 +52,18 @@ export async function POST(request: NextRequest) {
       delete roomData.scores[playerId];
     }
 
+    // If game is in progress and a player leaves, end the game (forfeit)
+    if (roomData.status === 'in-progress' && roomData.players.length > 0) {
+      roomData.gameOver = true;
+      // The remaining player is the winner
+      roomData.winner = roomData.players[0];
+      console.log(`Player ${playerId} left in-progress game. Winner is ${roomData.winner}`);
+    }
+
     // If no players left, delete the room
     if (roomData.players.length === 0) {
+      // If this was the last player, delete the room entirely
+      console.log(`[DEBUG] Last player leaving room ${roomCode}, deleting room`);
       await redis.del(`${ROOM_PREFIX}${roomCode}`);
       const removedRooms = await redis.zRem('active_rooms', roomCode);
 
@@ -65,7 +76,7 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // Otherwise, update the room data in Redis
-      await redis.setEx(`${ROOM_PREFIX}${roomCode}`, 60 * 15, JSON.stringify(roomData));
+      await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
     }
 
     // Remove player-to-room mapping

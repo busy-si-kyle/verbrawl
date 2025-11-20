@@ -41,11 +41,21 @@ export async function countActiveRooms(redis: RedisClientType): Promise<number> 
     const now = Date.now();
     const ninetySecondsAgo = now - 90 * 1000;
 
+    console.log(`[DEBUG] countActiveRooms: Cleaning up rooms older than ${new Date(ninetySecondsAgo).toISOString()}`);
+
+    // Get rooms that will be removed for logging
+    const roomsToRemove = await redis.zRangeByScore(ROOMS_SET, '-inf', ninetySecondsAgo);
+    if (roomsToRemove.length > 0) {
+      console.log(`[DEBUG] countActiveRooms: Removing ${roomsToRemove.length} rooms from ZSET:`, roomsToRemove);
+    }
+
     // Remove rooms with score less than 90 seconds ago
     await redis.zRemRangeByScore(ROOMS_SET, '-inf', ninetySecondsAgo);
 
     // Return the count of remaining rooms
-    return await redis.zCard(ROOMS_SET);
+    const count = await redis.zCard(ROOMS_SET);
+    console.log(`[DEBUG] countActiveRooms: ${count} active rooms remaining`);
+    return count;
   } catch (error) {
     console.error('Error counting active rooms:', error);
     return 0;

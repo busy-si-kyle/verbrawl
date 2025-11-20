@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
+import { ROOM_TTL } from '@/lib/constants';
+import { countActiveRooms } from '@/lib/player-count-utils';
 
 const ROOMS_SET = 'active_rooms';
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
-const ROOM_TTL = 90; // 90 seconds
 
 export async function POST(request: NextRequest) {
   const redis = getRedisClient();
@@ -32,60 +33,76 @@ export async function POST(request: NextRequest) {
     while (!isUnique && attempts < 10) {
       const potentialRoomCode = Math.floor(10000 + Math.random() * 90000).toString();
       const roomExists = await redis.exists(`${ROOM_PREFIX}${potentialRoomCode}`);
+
       if (!roomExists) {
         roomCode = potentialRoomCode;
         isUnique = true;
       }
+
       attempts++;
     }
 
-    if (!isUnique || roomCode === null) {
+    if (!roomCode) {
       return new Response(JSON.stringify({ error: 'Failed to generate unique room code' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // Create the room with the first player
+    console.log(`[DEBUG] Generated room code: ${roomCode} for player: ${playerId}`);
+
+    // Create new room data
     const roomData = {
       players: [playerId],
-      playerNicknames: { [playerId]: nickname || '' }, // Store actual nickname (may be empty)
-      scores: { [playerId]: 0 }, // Initialize scores for the first player
-      words: [], // Will be populated when game starts
-      gameOver: false, // Track if game has ended
-      winner: null, // Track the winner when game ends
-      status: 'waiting', // waiting, countdown, in-progress
-      createdAt: Date.now(),
+      playerNicknames: { [playerId]: nickname || '' },
+      scores: { [playerId]: 0 },
+      words: [],
+      gameOver: false,
+      winner: null,
+      status: 'waiting',
       countdownStart: null,
     };
 
     // Store room data in Redis
     await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
+    console.log(`[DEBUG] Stored room ${roomCode} in Redis with TTL ${ROOM_TTL}`);
 
-    // Add room to active rooms set (ZSET) with current timestamp
-    const addedToSet = await redis.zAdd(ROOMS_SET, {
+    // Verify the TTL was set correctly
+    const actualTTL = await redis.ttl(`${ROOM_PREFIX}${roomCode}`);
+    console.log(`[DEBUG] Room ${roomCode} actual TTL in Redis: ${actualTTL} seconds`);
+
+    // Add room to active rooms ZSET
+    await redis.zAdd(ROOMS_SET, {
       score: Date.now(),
       value: roomCode
     });
-
-    // Log if the room was successfully added to the set
-    if (addedToSet > 0) {
-      console.log(`Room ${roomCode} added to active_rooms ZSET during creation`);
-    } else {
-      console.warn(`Room ${roomCode} was already in active_rooms ZSET during creation`);
-    }
+    console.log(`[DEBUG] Added room ${roomCode} to active rooms ZSET`);
 
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
+    console.log(`[DEBUG] Assigned player ${playerId} to room ${roomCode}`);
 
+    // Verify the room was stored correctly
+    const verifyRoom = await redis.exists(`${ROOM_PREFIX}${roomCode}`);
+    console.log(`[DEBUG] Room ${roomCode} exists in Redis after creation?: ${verifyRoom}`);
+    if (!verifyRoom) {
+      console.error(`[ERROR] Room ${roomCode} was not persisted to Redis!`);
+    }
+
+    console.log(`[DEBUG] Returning success response for room ${roomCode}`);
     return new Response(JSON.stringify({
       roomCode,
       players: roomData.players,
-      playerNicknames: roomData.playerNicknames || {},
+      playerNicknames: roomData.playerNicknames,
+      scores: roomData.scores,
+      words: roomData.words,
+      gameOver: roomData.gameOver,
+      winner: roomData.winner,
+      status: roomData.status,
+      countdownStart: roomData.countdownStart,
       message: 'Room created successfully',
-      status: roomData.status
     }), {
-      status: 200,
+      status: 201,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
@@ -100,6 +117,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   const redis = getRedisClient();
 
+  // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
   }
@@ -145,20 +163,17 @@ export async function PUT(request: NextRequest) {
     // Add player to room
     roomData.players.push(playerId);
 
-    // Initialize score for the new player if scores object exists
+    // Initialize score for the new player
     if (roomData.scores) {
       roomData.scores[playerId] = 0;
     } else {
-      // Fallback: initialize scores object if it doesn't exist
       roomData.scores = { [playerId]: 0 };
     }
 
-    // Initialize or update player nicknames object to ensure both player's nicknames are preserved
+    // Add player nickname
     if (!roomData.playerNicknames) {
-      // Fallback initialization if for some reason playerNicknames doesn't exist
       roomData.playerNicknames = {};
     }
-    // Add the joining player's actual nickname (may be empty)
     roomData.playerNicknames[playerId] = nickname || '';
 
     // If this is the second player, start the countdown
@@ -222,6 +237,11 @@ export async function GET(request: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    // Trigger cleanup of expired rooms
+    // We do this here to ensure the active_rooms ZSET stays clean without a dedicated cron job
+    // This is a "lazy" cleanup strategy triggered by user activity
+    countActiveRooms(redis).catch(err => console.error('Background room cleanup error:', err));
 
     // Get room data
     const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);

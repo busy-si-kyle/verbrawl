@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
+import { ROOM_TTL } from '@/lib/constants';
+import { countActiveRooms } from '@/lib/player-count-utils';
 
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
@@ -10,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const redis = getRedisClient();
-  
+
   // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
@@ -24,8 +26,21 @@ export async function GET(req: NextRequest) {
     return new Response('Room code and player ID are required', { status: 400 });
   }
 
+  console.log(`[DEBUG] SSE connection attempt - roomCode: ${roomCode}, playerId: ${playerId}, checking key: ${ROOM_PREFIX}${roomCode}`);
+
+  // Check if room exists
+  const roomExists = await redis.exists(`${ROOM_PREFIX}${roomCode}`);
+  console.log(`[DEBUG] SSE connection for room ${roomCode}: Exists? ${roomExists}`);
+  if (!roomExists) {
+    return new Response('Room not found', { status: 404 });
+  }
+
   // Verify player is in the room
   const playerRoomCode = await redis.get(`${PLAYER_PREFIX}${playerId}`);
+
+  // Trigger cleanup of expired rooms on new connection
+  countActiveRooms(redis).catch(err => console.error('Background room cleanup error (SSE):', err));
+
   if (playerRoomCode !== roomCode) {
     return new Response('Player not in this room', { status: 403 });
   }
@@ -34,14 +49,14 @@ export async function GET(req: NextRequest) {
     start(controller) {
       const encoder = new TextEncoder();
       let isClosed = false;
-      
+
       // Function to send room state update
       const sendUpdate = async () => {
         if (isClosed) return;
-        
+
         try {
           const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
-          
+
           if (!roomDataString) {
             // Room doesn't exist anymore, send close event
             if (!isClosed) {
@@ -61,7 +76,7 @@ export async function GET(req: NextRequest) {
             // Ensure countdownStart is a number, as Redis may store it as string
             if (roomData.countdownStart) {
               const countdownStart = Number(roomData.countdownStart);
-              
+
               // Validate that countdownStart is a valid timestamp
               if (isNaN(countdownStart) || countdownStart <= 0) {
                 console.error(`Invalid countdownStart for room ${roomCode}: ${roomData.countdownStart}`);
@@ -70,7 +85,7 @@ export async function GET(req: NextRequest) {
               } else {
                 const elapsed = Date.now() - countdownStart;
                 remainingCountdown = Math.max(0, 10000 - elapsed); // 10 seconds countdown
-                
+
                 if (remainingCountdown <= 0) {
                   // Countdown has finished
                   remainingCountdown = 0; // Ensure it's exactly 0
@@ -102,7 +117,7 @@ export async function GET(req: NextRequest) {
             remainingCountdown,
             timestamp: Date.now()
           };
-          
+
           // After sending the message, if countdown is finished, update Redis
           if (remainingCountdown !== null && remainingCountdown <= 0) {
             // Update the response data to reflect the new status
@@ -111,19 +126,19 @@ export async function GET(req: NextRequest) {
               status: 'in-progress',
               countdownStart: null
             };
-            
+
             // Create an updated room data object to avoid modifying the original in this scope
             const updatedRoomData = {
               ...roomData,
               status: 'in-progress',
               countdownStart: null
             };
-            
+
             // Update room data in Redis
-            await redis.setEx(`${ROOM_PREFIX}${roomCode}`, 60 * 15, JSON.stringify(updatedRoomData));
+            await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(updatedRoomData));
             console.log(`Room ${roomCode} updated to in-progress in Redis`);
           }
-          
+
           if (!isClosed) {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify(responseData)}\n\n`)

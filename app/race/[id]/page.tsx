@@ -35,18 +35,18 @@ export default function RaceRoomPage() {
   const [hasReceivedStatusUpdate, setHasReceivedStatusUpdate] = useState(false);
   const WORD_LENGTH = 5;
   const MAX_ATTEMPTS = 6;
-  
+
   // Refs for values that shouldn't trigger re-runs of effects
   const statusRef = useRef(status);
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
-  
+
   // Initialize the board
-  const initialBoard = Array(MAX_ATTEMPTS).fill(null).map(() => 
+  const initialBoard = Array(MAX_ATTEMPTS).fill(null).map(() =>
     Array(WORD_LENGTH).fill('')
   );
-  
+
   const [board, setBoard] = useState<string[][]>(initialBoard);
   const [currentRow, setCurrentRow] = useState<number>(0);
   const [currentCol, setCurrentCol] = useState<number>(0);
@@ -57,7 +57,7 @@ export default function RaceRoomPage() {
 
   const [gameOver, setGameOver] = useState(false); // Local game over state
 
-  
+
   // Game state
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [words, setWords] = useState<string[]>([]); // The 20 shared words
@@ -67,7 +67,7 @@ export default function RaceRoomPage() {
   const [validWords, setValidWords] = useState<string[]>([]);
   const [wordleWords, setWordleWords] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
 
   // Update local game over state based on room state
   useEffect(() => {
@@ -100,7 +100,7 @@ export default function RaceRoomPage() {
   // Try to join the room when component mounts
   useEffect(() => {
     let isCancelled = false; // Flag to track if component is unmounting
-    
+
     if (roomCode && playerId && !isCancelled) {
       // Set loading states using functional updates to prevent race conditions
       setIsJoining(prev => prev !== true ? true : prev);
@@ -133,7 +133,7 @@ export default function RaceRoomPage() {
         }
       });
     }
-    
+
     // Cleanup function to set the flag when component unmounts
     return () => {
       isCancelled = true;
@@ -216,17 +216,17 @@ export default function RaceRoomPage() {
   // Update player score by sending to backend
   const updatePlayerScore = useCallback(async (playerId: string, points: number) => {
     if (!roomCode) return;
-    
+
     try {
       const response = await fetch('/api/room/score', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          roomCode, 
-          playerId, 
-          points 
+        body: JSON.stringify({
+          roomCode,
+          playerId,
+          points
         }),
       });
 
@@ -256,18 +256,18 @@ export default function RaceRoomPage() {
   // Handle keyboard input for the Wordle grid
   const handleKeyPress = useCallback(async (key: string) => {
     if (gameOver || status !== 'in-progress' || isSubmitting || !gameReady) return;
-    
+
     if (key === 'Enter') {
       if (currentCol !== WORD_LENGTH) {
         // Row is not complete
         return;
       }
-      
+
       setIsSubmitting(true);
       try {
         // Get the current word
         const currentWord = board[currentRow].join('').toLowerCase();
-        
+
         // Check if the word is valid
         const isValid = await isValidWord(currentWord);
         if (!isValid) {
@@ -277,53 +277,53 @@ export default function RaceRoomPage() {
           });
           return;
         }
-        
+
         // Check against the solution and get letter statuses
         // Check if game is properly initialized before processing
         if (!words || words.length === 0 || currentWordIndex >= words.length || currentWordIndex < 0) {
           console.error(`Game not properly initialized: words length = ${words?.length || 0}, currentWordIndex = ${currentWordIndex}`);
           return; // Exit early if game isn't properly initialized
         }
-        
+
         const solution = words[currentWordIndex];
         // Add safety check to ensure solution exists before processing
         if (!solution) {
           console.error(`No solution found for word index ${currentWordIndex}, available words: ${words.length}`);
           return; // Exit early if solution doesn't exist yet
         }
-        
+
         const letterStatuses = getLetterStatuses(currentWord, solution);
-        
+
         // Mark this row as revealed with proper statuses
         const newRevealed = [...revealed];
         newRevealed[currentRow] = [...letterStatuses];
         setRevealed(newRevealed);
-        
+
         // Update key statuses based on the solution
-        const newUsedKeys = {...usedKeys};
+        const newUsedKeys = { ...usedKeys };
         board[currentRow].forEach((letter, index) => {
           if (letter) {
             const status = letterStatuses[index];
             if (status) {  // Ensure status exists before processing
               // Only update status if it's better than the current one
-              if (!newUsedKeys[letter] || 
-                  (newUsedKeys[letter] === 'absent' && status !== 'absent') ||
-                  (newUsedKeys[letter] === 'present' && status === 'correct')) {
+              if (!newUsedKeys[letter] ||
+                (newUsedKeys[letter] === 'absent' && status !== 'absent') ||
+                (newUsedKeys[letter] === 'present' && status === 'correct')) {
                 newUsedKeys[letter] = status;
               }
             }
           }
         });
         setUsedKeys(newUsedKeys);
-        
+
         // Check if the word was guessed correctly
         if (currentWord === solution.toLowerCase()) {
           // Calculate what the new score should be based on current state for win condition check
           const currentScore = (scores[playerId] || 0) + 1;
-          
+
           // Update player's score on backend
           await updatePlayerScore(playerId, 1);
-          
+
           if (currentScore >= 5) {
             // Set game over state in the room
             if (roomCode) {
@@ -333,8 +333,8 @@ export default function RaceRoomPage() {
                   headers: {
                     'Content-Type': 'application/json',
                   },
-                  body: JSON.stringify({ 
-                    roomCode, 
+                  body: JSON.stringify({
+                    roomCode,
                     playerId,
                     winner: playerId
                   }),
@@ -348,7 +348,7 @@ export default function RaceRoomPage() {
             toast.success('CORRECT!', {
               description: solution.toUpperCase(),
             });
-            
+
             // Move to next word
             if (currentWordIndex < words.length - 1) {
               setCurrentWordIndex(currentWordIndex + 1);
@@ -365,8 +365,8 @@ export default function RaceRoomPage() {
                     headers: {
                       'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ 
-                      roomCode, 
+                    body: JSON.stringify({
+                      roomCode,
                       playerId,
                       winner: null // No winner if time runs out
                     }),
@@ -384,7 +384,7 @@ export default function RaceRoomPage() {
               description: solution.toUpperCase(),
             });
           }
-          
+
           // Move to next word
           if (currentWordIndex < words.length - 1) {
             setCurrentWordIndex(currentWordIndex + 1);
@@ -401,8 +401,8 @@ export default function RaceRoomPage() {
                   headers: {
                     'Content-Type': 'application/json',
                   },
-                  body: JSON.stringify({ 
-                    roomCode, 
+                  body: JSON.stringify({
+                    roomCode,
                     playerId,
                     winner: null // No winner if time runs out
                   }),
@@ -458,10 +458,65 @@ export default function RaceRoomPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentRow, currentCol, gameOver, status, gameReady, handleKeyPress, isSubmitting]);
 
+  // Track if we are explicitly leaving via the button
+  const isLeavingRef = useRef(false);
+
   const handleLeaveRoom = () => {
+    isLeavingRef.current = true;
     leaveRoom();
     router.push('/race');
   };
+
+  // Handle page unload/visibility change to ensure player is removed from room
+  useEffect(() => {
+    const handleUnload = () => {
+      if (roomCode && playerId) {
+        // Use sendBeacon or fetch with keepalive for reliable delivery on unload
+        const data = JSON.stringify({ roomCode, playerId });
+        const blob = new Blob([data], { type: 'application/json' });
+
+        // Prioritize sendBeacon for reliability during unload
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/room/leave', blob);
+        } else {
+          // Fallback to fetch with keepalive
+          try {
+            fetch('/api/room/leave', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: data,
+              keepalive: true,
+            });
+          } catch (e) {
+            console.error('Failed to send leave request', e);
+          }
+        }
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // Optional: You might want to consider if hiding the tab should trigger a leave
+        // For a real-time game, it often implies the user is distracted or leaving
+        // But for now, we'll stick to explicit unload/close events to avoid accidental disconnects
+        // handleUnload(); 
+      }
+    };
+
+    window.addEventListener('beforeunload', handleUnload);
+    // document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      // document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      // DO NOT call handleUnload() here - it causes the user to leave the room
+      // when navigating between pages (e.g., from /race to /race/[roomCode]).
+      // The beforeunload event handler will take care of actual page closures/refreshes.
+    };
+  }, [roomCode, playerId]);
 
   // Helper function to get player display name
   const getPlayerDisplayName = (targetPlayerId: string) => {
@@ -600,7 +655,11 @@ export default function RaceRoomPage() {
                     {roomWinner === playerId || (!roomWinner && scores[playerId] >= 5) ? (
                       <>
                         <h3 className="text-2xl font-bold mb-2">You Won!</h3>
-                        <p className="text-lg mb-6">{getPlayerDisplayName(playerId)} reached 5 points first</p>
+                        <p className="text-lg mb-6">
+                          {scores[playerId] >= 5
+                            ? `${getPlayerDisplayName(playerId)} reached 5 points first`
+                            : 'Opponent disconnected'}
+                        </p>
                       </>
                     ) : (
                       <>
@@ -621,16 +680,15 @@ export default function RaceRoomPage() {
                   <div className="max-w-xs w-full">
                     <div className="flex justify-between">
                       {players.map((player) => (
-                        <div 
-                          key={player} 
+                        <div
+                          key={player}
                           className="flex flex-col items-center space-y-1"
                         >
                           <div
-                            className={`px-4 py-2 rounded-lg ${
-                              player === localStorage.getItem('player-id')
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-secondary'
-                            }`}
+                            className={`px-4 py-2 rounded-lg ${player === localStorage.getItem('player-id')
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-secondary'
+                              }`}
                           >
                             {getPlayerDisplayName(player)}
                           </div>
@@ -644,16 +702,16 @@ export default function RaceRoomPage() {
                     </div>
                   </div>
                 </div>
-                
+
                 {/* Right column: Game grid and keyboard */}
                 <div className="lg:w-2/3 flex justify-center items-center">
                   <div className="w-full max-w-md flex flex-col items-center">
                     <div className="w-full -mt-2">
-                      <WordleGrid 
-                        board={board} 
-                        currentRow={currentRow} 
-                        currentCol={currentCol} 
-                        revealed={revealed} 
+                      <WordleGrid
+                        board={board}
+                        currentRow={currentRow}
+                        currentCol={currentCol}
+                        revealed={revealed}
                         solution={words[currentWordIndex]}
                       />
                     </div>
