@@ -27,6 +27,8 @@ export default function RaceRoomPage() {
     gameOver: roomGameOver, // Get game over status from room provider
     winner: roomWinner, // Get winner from room provider
     countdownRemaining,
+    readyPlayers,
+    toggleReady,
     getRoomInfo,
     leaveRoom
   } = useRoom();
@@ -468,6 +470,12 @@ export default function RaceRoomPage() {
     router.push('/race');
   };
 
+  const handleReady = () => {
+    if (playerId && !readyPlayers.includes(playerId)) {
+      toggleReady(playerId);
+    }
+  };
+
   // Handle page unload/visibility change to ensure player is removed from room
   useEffect(() => {
     const handleUnload = () => {
@@ -509,6 +517,7 @@ export default function RaceRoomPage() {
       if (!isLeavingRef.current && roomCode && playerId && statusRef.current !== 'none') {
         console.log(`Component unmounting for room ${roomCode}, status: ${statusRef.current}, sending leave request`);
         handleUnload();
+        leaveRoom();
       }
     };
   }, [roomCode, playerId]); // Don't include status - use statusRef instead to avoid cleanup on status changes
@@ -611,6 +620,11 @@ export default function RaceRoomPage() {
                         <div key={player} className="flex flex-col items-center space-y-1">
                           <div className="px-4 py-2 bg-secondary rounded-lg">
                             {getPlayerDisplayName(player)}
+                            {readyPlayers.includes(player) && (
+                              <span className="ml-2 text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-full">
+                                READY
+                              </span>
+                            )}
                           </div>
                           {/* Score display for each player */}
                           <div className="text-center">
@@ -620,19 +634,42 @@ export default function RaceRoomPage() {
                         </div>
                       ))}
                     </div>
-                    <div className="flex justify-center">
-                      <Button variant="outline" onClick={handleLeaveRoom}>
-                        Leave Room
-                      </Button>
+
+                    {/* Ready Button Area */}
+                    <div className="flex flex-col items-center space-y-4">
+                      {status === 'waiting' && (
+                        <div className="w-full max-w-xs">
+                          <Button
+                            className="w-full"
+                            size="lg"
+                            variant={readyPlayers.includes(playerId) ? "secondary" : "default"}
+                            onClick={handleReady}
+                            disabled={readyPlayers.includes(playerId) || players.length < 2}
+                          >
+                            {readyPlayers.includes(playerId) ? "Ready!" : "I'm Ready"}
+                          </Button>
+                          {players.length < 2 && (
+                            <p className="text-xs text-muted-foreground text-center mt-2">
+                              Waiting for opponent...
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex justify-center">
+                        <Button variant="outline" onClick={handleLeaveRoom}>
+                          Leave Room
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          </div>
-        </main>
+          </div >
+        </main >
         <Footer />
-      </div>
+      </div >
     );
   }
 

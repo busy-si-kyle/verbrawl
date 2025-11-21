@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
       winner: null,
       status: 'waiting',
       countdownStart: null,
+      readyPlayers: [],
     };
 
     // Store room data in Redis
@@ -100,6 +101,7 @@ export async function POST(request: NextRequest) {
       winner: roomData.winner,
       status: roomData.status,
       countdownStart: roomData.countdownStart,
+      readyPlayers: roomData.readyPlayers,
       message: 'Room created successfully',
     }), {
       status: 201,
@@ -176,11 +178,12 @@ export async function PUT(request: NextRequest) {
     }
     roomData.playerNicknames[playerId] = nickname || '';
 
-    // If this is the second player, start the countdown
+    // If this is the second player, we don't start countdown automatically anymore
+    // Instead we wait for both players to be ready
     if (roomData.players.length === 2) {
-      roomData.status = 'countdown';
-      roomData.countdownStart = Date.now();
-      console.log(`Room ${roomCode} countdown started at ${roomData.countdownStart}, players: ${roomData.players.length}`);
+      // roomData.status = 'countdown'; // REMOVED: Auto-start
+      // roomData.countdownStart = Date.now(); // REMOVED: Auto-start
+      console.log(`Room ${roomCode} full, waiting for players to be ready`);
     }
 
     // Update room data in Redis
@@ -205,7 +208,8 @@ export async function PUT(request: NextRequest) {
       winner: roomData.winner || null,
       status: roomData.status,
       countdownStart: roomData.countdownStart,
-      message: roomData.players.length === 2 ? 'Countdown started!' : 'Joined room successfully',
+      readyPlayers: roomData.readyPlayers || [],
+      message: 'Joined room successfully',
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -273,6 +277,7 @@ export async function GET(request: NextRequest) {
       winner: roomData.winner || null,
       status: roomData.status,
       countdownStart: roomData.countdownStart,
+      readyPlayers: roomData.readyPlayers || [],
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

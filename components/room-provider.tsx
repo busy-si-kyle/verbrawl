@@ -12,12 +12,14 @@ interface RoomContextType {
   gameOver: boolean;
   winner: string | null;
   countdownRemaining: number | null;
+  readyPlayers: string[];
   createRoom: (playerId: string) => Promise<boolean>;
   joinRoom: (roomCode: string, playerId: string) => Promise<boolean>;
   getRoomInfo: (roomCode: string, playerId: string) => Promise<boolean>;
   leaveRoom: () => void;
   resetRoom: () => void;
   startGame: () => void;
+  toggleReady: (playerId: string) => Promise<void>;
 }
 
 const RoomContext = createContext<RoomContextType | undefined>(undefined);
@@ -33,6 +35,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [winner, setWinner] = useState<string | null>(null);
   const [countdownRemaining, setCountdownRemaining] = useState<number | null>(null);
   const [serverCountdownStart, setServerCountdownStart] = useState<number | null>(null);
+  const [readyPlayers, setReadyPlayers] = useState<string[]>([]);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
 
@@ -91,6 +94,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         if ('winner' in data) {
           setWinner(data.winner);
         }
+        if (data.readyPlayers) {
+          setReadyPlayers(data.readyPlayers);
+        }
         setStatus(data.status as 'none' | 'waiting' | 'countdown' | 'in-progress');
 
         // Handle countdown state with server sync
@@ -136,7 +142,11 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     };
 
     newEventSource.onerror = (error) => {
-      console.error('SSE error for room updates:', error);
+      // Only log actual errors, not normal closures during navigation
+      if (newEventSource.readyState !== EventSource.CLOSED) {
+        console.error('SSE error for room updates:', error);
+      }
+
       // Close the erroring connection to prevent further errors
       newEventSource.close();
 
@@ -263,6 +273,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setWords(data.words || []);
         setGameOver(data.gameOver || false);
         setWinner(data.winner || null);
+        setReadyPlayers(data.readyPlayers || []);
         if (connectToRoomUpdatesRef.current) {
           connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
         }
@@ -309,6 +320,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setWords(data.words || []);
         setGameOver(data.gameOver || false);
         setWinner(data.winner || null);
+        setReadyPlayers(data.readyPlayers || []);
         setCountdownRemaining(data.status === 'countdown' ? (data.remainingCountdown || null) : null);
         setServerCountdownStart(data.countdownStart || null);
         if (connectToRoomUpdatesRef.current) {
@@ -346,6 +358,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setWords(data.words || []);
         setGameOver(data.gameOver || false);
         setWinner(data.winner || null);
+        setReadyPlayers(data.readyPlayers || []);
         setCountdownRemaining(data.status === 'countdown' ? (data.remainingCountdown || null) : null);
         setServerCountdownStart(data.countdownStart || null);
         if (connectToRoomUpdatesRef.current) {
@@ -389,6 +402,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setWords([]); // Reset words when leaving room
     setGameOver(false); // Reset game over state when leaving room
     setWinner(null); // Reset winner when leaving room
+    setReadyPlayers([]); // Reset ready players when leaving room
     setCountdownRemaining(null);
     setEventSource(null);
   }, [eventSource, roomCode, storedPlayerId]);
@@ -406,6 +420,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setWords([]); // Reset words when resetting room
     setGameOver(false); // Reset game over state when resetting room
     setWinner(null); // Reset winner when resetting room
+    setReadyPlayers([]); // Reset ready players when resetting room
     setCountdownRemaining(null);
     setServerCountdownStart(null);
     setEventSource(null);
@@ -415,6 +430,25 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     // This would be called when countdown completes
     setStatus('in-progress');
   }, []);
+
+  const toggleReady = useCallback(async (playerId: string) => {
+    if (!roomCode) return;
+
+    try {
+      await fetch('/api/room/ready', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          roomCode,
+          playerId
+        }),
+      });
+    } catch (error) {
+      console.error('Error toggling ready status:', error);
+    }
+  }, [roomCode]);
 
   // Cleanup on unmount only
   useEffect(() => {
@@ -436,12 +470,14 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     gameOver,
     winner,
     countdownRemaining,
+    readyPlayers,
     createRoom,
     joinRoom,
     getRoomInfo,
     leaveRoom,
     resetRoom,
     startGame,
+    toggleReady,
   };
 
   return (

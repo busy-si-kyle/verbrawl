@@ -19,17 +19,17 @@ export async function GET(req: NextRequest) {
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
-
       let isClosed = false;
 
       // Function to send player count update
       const sendUpdate = async () => {
         try {
-          // Don't send updates if connection is already closed
           if (isClosed) return;
 
-          // Get the count of active sessions (automatically cleans up expired ones)
           const activeCount = await countActiveSessions(redis);
+
+          if (isClosed) return;
+
           const data = {
             playerCount: activeCount,
             timestamp: Date.now()
@@ -39,7 +39,12 @@ export async function GET(req: NextRequest) {
             encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
           );
         } catch (error) {
-          console.error('Error sending player count update:', error);
+          if (!isClosed) {
+            const errorMessage = (error as Error).message || String(error);
+            if (!errorMessage.includes('Controller is already closed')) {
+              console.error('Error sending player count update:', error);
+            }
+          }
         }
       };
 
@@ -52,9 +57,7 @@ export async function GET(req: NextRequest) {
       // Send heartbeat to keep connection alive
       const heartbeatInterval = setInterval(() => {
         try {
-          // Don't send heartbeat if connection is already closed
           if (isClosed) return;
-
           controller.enqueue(encoder.encode(`: heartbeat\n\n`));
         } catch (error) {
           console.error('Error sending heartbeat:', error);

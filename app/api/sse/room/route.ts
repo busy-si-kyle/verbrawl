@@ -114,6 +114,7 @@ export async function GET(req: NextRequest) {
             winner: roomData.winner || null,
             status: roomData.status,
             countdownStart: roomData.countdownStart,
+            readyPlayers: roomData.readyPlayers || [],
             remainingCountdown,
             timestamp: Date.now()
           };
