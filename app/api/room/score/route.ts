@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
 import { ROOM_TTL } from '@/lib/constants';
+import { publishRoomUpdate } from '../../../../lib/room-utils';
 
 const ROOM_PREFIX = 'room:';
 
@@ -49,8 +50,20 @@ export async function PUT(request: NextRequest) {
     // Update player's score
     roomData.scores[playerId] = (roomData.scores[playerId] || 0) + points;
 
+    // Check if we should transition from countdown to in-progress
+    // This fixes the issue where status remains 'countdown' in Redis even after game starts
+    if (roomData.status === 'countdown' && roomData.countdownStart) {
+      const elapsed = Date.now() - roomData.countdownStart;
+      if (elapsed >= 10000) {
+        roomData.status = 'in-progress';
+      }
+    }
+
     // Update room data in Redis
     await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
+
+    // Publish update to subscribers
+    await publishRoomUpdate(roomCode, roomData);
 
     return new Response(JSON.stringify({
       roomCode,

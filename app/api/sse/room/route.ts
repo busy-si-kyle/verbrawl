@@ -1,37 +1,42 @@
 import { NextRequest } from 'next/server';
-import { getRedisClient } from '@/lib/redis';
+import { getRedisClient, getRedisPubSubClient } from '@/lib/redis';
 import { ROOM_TTL } from '@/lib/constants';
 import { countActiveRooms } from '@/lib/player-count-utils';
+import { ROOM_UPDATES_CHANNEL_PREFIX } from '../../../../lib/room-utils';
 
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const UPDATE_INTERVAL = 500; // 0.5 seconds - more frequent for better score updates
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const redis = getRedisClient();
+  const subscriber = getRedisPubSubClient().duplicate(); // Create a duplicate for subscription
 
   // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
   }
 
+  // Connect the subscriber client
+  await subscriber.connect();
+
   const url = new URL(req.url);
   const roomCode = url.searchParams.get('roomCode');
   const playerId = url.searchParams.get('playerId');
 
   if (!roomCode || !playerId) {
+    await subscriber.disconnect();
     return new Response('Room code and player ID are required', { status: 400 });
   }
 
-  console.log(`[DEBUG] SSE connection attempt - roomCode: ${roomCode}, playerId: ${playerId}, checking key: ${ROOM_PREFIX}${roomCode}`);
+  console.log(`[DEBUG] SSE connection attempt - roomCode: ${roomCode}, playerId: ${playerId}`);
 
   // Check if room exists
   const roomExists = await redis.exists(`${ROOM_PREFIX}${roomCode}`);
-  console.log(`[DEBUG] SSE connection for room ${roomCode}: Exists? ${roomExists}`);
   if (!roomExists) {
+    await subscriber.disconnect();
     return new Response('Room not found', { status: 404 });
   }
 
@@ -42,134 +47,105 @@ export async function GET(req: NextRequest) {
   countActiveRooms(redis).catch(err => console.error('Background room cleanup error (SSE):', err));
 
   if (playerRoomCode !== roomCode) {
+    await subscriber.disconnect();
     return new Response('Player not in this room', { status: 403 });
   }
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       const encoder = new TextEncoder();
       let isClosed = false;
 
-      // Function to send room state update
-      const sendUpdate = async () => {
+      // Function to send data to client
+      const sendData = (data: any) => {
         if (isClosed) return;
-
         try {
-          const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
-
-          if (!roomDataString) {
-            // Room doesn't exist anymore, send close event
-            if (!isClosed) {
-              controller.enqueue(encoder.encode('event: close\ndata: {"message":"Room no longer exists"}\n\n'));
-              controller.close();
-              isClosed = true;
-            }
-            return;
-          }
-
-          const roomData = JSON.parse(roomDataString);
-
-          // Calculate remaining countdown time if in countdown state
-          let remainingCountdown = null;
-          if (roomData.status === 'countdown') {
-            // When room is in countdown status, countdownStart should be set
-            // Ensure countdownStart is a number, as Redis may store it as string
-            if (roomData.countdownStart) {
-              const countdownStart = Number(roomData.countdownStart);
-
-              // Validate that countdownStart is a valid timestamp
-              if (isNaN(countdownStart) || countdownStart <= 0) {
-                console.error(`Invalid countdownStart for room ${roomCode}: ${roomData.countdownStart}`);
-                // Set a default behavior if countdownStart is invalid
-                remainingCountdown = 10000; // Default to 10 seconds
-              } else {
-                const elapsed = Date.now() - countdownStart;
-                remainingCountdown = Math.max(0, 10000 - elapsed); // 10 seconds countdown
-
-                if (remainingCountdown <= 0) {
-                  // Countdown has finished
-                  remainingCountdown = 0; // Ensure it's exactly 0
-                  console.log(`Room ${roomCode} countdown finished, will update to in-progress`);
-                } else {
-                  console.log(`Room ${roomCode} countdown status: ${Math.ceil(remainingCountdown / 1000)}s remaining, elapsed: ${Date.now() - countdownStart}ms`);
-                }
-              }
-            } else {
-              // If status is countdown but countdownStart is not set, 
-              // there's an inconsistent state - default to 10 seconds
-              console.error(`Room ${roomCode} is in countdown status but has no countdownStart`);
-              remainingCountdown = 10000; // Default to 10 seconds
-            }
-          }
-
-          // If countdown is finished, update the status in the data we're sending
-          // and update Redis for future requests
-          let responseData = {
-            roomCode,
-            players: roomData.players,
-            playerNicknames: roomData.playerNicknames || {},
-            scores: roomData.scores || {},
-            words: roomData.words || [],
-            gameOver: roomData.gameOver || false,
-            winner: roomData.winner || null,
-            status: roomData.status,
-            countdownStart: roomData.countdownStart,
-            readyPlayers: roomData.readyPlayers || [],
-            remainingCountdown,
-            timestamp: Date.now()
-          };
-
-          // After sending the message, if countdown is finished, update Redis
-          if (remainingCountdown !== null && remainingCountdown <= 0) {
-            // Update the response data to reflect the new status
-            responseData = {
-              ...responseData,
-              status: 'in-progress',
-              countdownStart: null
-            };
-
-            // Create an updated room data object to avoid modifying the original in this scope
-            const updatedRoomData = {
-              ...roomData,
-              status: 'in-progress',
-              countdownStart: null
-            };
-
-            // Update room data in Redis
-            await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(updatedRoomData));
-            console.log(`Room ${roomCode} updated to in-progress in Redis`);
-          }
-
-          if (!isClosed) {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify(responseData)}\n\n`)
-            );
-          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
         } catch (error) {
-          if (!isClosed) {
-            console.error('Error sending room update:', error);
-            try {
-              controller.enqueue(
-                encoder.encode(`event: error\ndata: {"error":"${(error as Error).message}"}\n\n`)
-              );
-            } catch (enqueueError) {
-              console.error('Error enqueuing error message:', enqueueError);
-            }
-          }
+          console.error('Error sending data:', error);
         }
       };
 
-      // Send initial room state
-      sendUpdate();
+      // Function to process room data and calculate countdown
+      const processRoomData = (roomData: any) => {
+        // Calculate remaining countdown time if in countdown state
+        let remainingCountdown = null;
+        let status = roomData.status;
 
-      // Send updates at intervals - more frequent for better score sync
-      const updateInterval = setInterval(sendUpdate, UPDATE_INTERVAL);
+        if (status === 'countdown') {
+          if (roomData.countdownStart) {
+            const countdownStart = Number(roomData.countdownStart);
+            if (isNaN(countdownStart) || countdownStart <= 0) {
+              remainingCountdown = 10000; // Default to 10 seconds
+            } else {
+              const elapsed = Date.now() - countdownStart;
+              remainingCountdown = Math.max(0, 10000 - elapsed);
 
-      // Send heartbeat to keep connection alive
+              // If countdown has finished, report status as in-progress
+              if (remainingCountdown === 0) {
+                status = 'in-progress';
+              }
+            }
+          } else {
+            remainingCountdown = 10000;
+          }
+        }
+
+        return {
+          roomCode,
+          players: roomData.players,
+          playerNicknames: roomData.playerNicknames || {},
+          scores: roomData.scores || {},
+          words: roomData.words || [],
+          gameOver: roomData.gameOver || false,
+          winner: roomData.winner || null,
+          status,
+          countdownStart: roomData.countdownStart,
+          readyPlayers: roomData.readyPlayers || [],
+          remainingCountdown,
+          timestamp: Date.now()
+        };
+      };
+
+      // 1. Send initial state immediately
+      try {
+        const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
+        if (roomDataString) {
+          const roomData = JSON.parse(roomDataString);
+          sendData(processRoomData(roomData));
+        } else {
+          // Room gone
+          if (!isClosed) {
+            controller.enqueue(encoder.encode('event: close\ndata: {"message":"Room no longer exists"}\n\n'));
+            controller.close();
+            isClosed = true;
+            await subscriber.disconnect();
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('Error sending initial state:', error);
+      }
+
+      // 2. Subscribe to Redis channel for updates
+      try {
+        await subscriber.subscribe(`${ROOM_UPDATES_CHANNEL_PREFIX}${roomCode}`, (message) => {
+          if (isClosed) return;
+          try {
+            const roomData = JSON.parse(message);
+            sendData(processRoomData(roomData));
+          } catch (error) {
+            console.error('Error parsing pub/sub message:', error);
+          }
+        });
+      } catch (error) {
+        console.error('Error subscribing to channel:', error);
+      }
+
+      // 3. Heartbeat to keep connection alive
       const heartbeatInterval = setInterval(() => {
         if (!isClosed) {
           try {
-            // Send data comment as heartbeat (this won't trigger onmessage, just keeps connection alive)
             controller.enqueue(encoder.encode(`: heartbeat\n\n`));
           } catch (error) {
             console.error('Error sending heartbeat:', error);
@@ -179,12 +155,19 @@ export async function GET(req: NextRequest) {
       }, HEARTBEAT_INTERVAL);
 
       // Cleanup on connection close
-      req.signal.addEventListener('abort', () => {
+      req.signal.addEventListener('abort', async () => {
         if (!isClosed) {
-          clearInterval(updateInterval);
           clearInterval(heartbeatInterval);
-          controller.close();
           isClosed = true;
+          try {
+            if (subscriber.isOpen) {
+              await subscriber.unsubscribe(`${ROOM_UPDATES_CHANNEL_PREFIX}${roomCode}`);
+              await subscriber.disconnect();
+            }
+            // No need to close controller on abort, it's already closed/errored
+          } catch (err) {
+            console.error('Error during cleanup:', err);
+          }
         }
       });
     },

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
 import { ROOM_TTL, WAITING_RANDOM_ROOMS } from '@/lib/constants';
+import { publishRoomUpdate } from '../../../../lib/room-utils';
 
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
@@ -53,7 +54,8 @@ export async function POST(request: NextRequest) {
     }
 
     // If game is in countdown or in-progress and a player leaves, end the game (opponent wins by forfeit)
-    if ((roomData.status === 'countdown' || roomData.status === 'in-progress') && roomData.players.length > 0) {
+    // BUT only if the game isn't already over (e.g. someone just won and is leaving)
+    if (!roomData.gameOver && (roomData.status === 'countdown' || roomData.status === 'in-progress') && roomData.players.length > 0) {
       roomData.gameOver = true;
       roomData.status = 'in-progress'; // Keep status as in-progress to show game over UI
       // The remaining player is the winner
@@ -84,6 +86,9 @@ export async function POST(request: NextRequest) {
     } else {
       // Otherwise, update the room data in Redis
       await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
+
+      // Publish update to subscribers
+      await publishRoomUpdate(roomCode, roomData);
 
       // If it's a random room, and it's now waiting with 1 player, make sure it's in the queue
       if (roomData.type === 'random' && roomData.status === 'waiting' && roomData.players.length === 1) {

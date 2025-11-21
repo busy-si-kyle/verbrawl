@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
 import { ROOM_TTL } from '@/lib/constants';
+import { publishRoomUpdate } from '../../../../lib/room-utils';
 
 const ROOM_PREFIX = 'room:';
 const ROOMS_SET = 'active_rooms';
@@ -74,6 +75,9 @@ export async function POST(request: NextRequest) {
             score: Date.now(),
             value: roomCode
         });
+
+        // Publish update to subscribers
+        await publishRoomUpdate(roomCode, roomData);
 
         return new Response(JSON.stringify({
             roomCode,

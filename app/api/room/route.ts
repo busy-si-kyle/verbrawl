@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
 import { ROOM_TTL, WAITING_RANDOM_ROOMS } from '@/lib/constants';
 import { countActiveRooms } from '@/lib/player-count-utils';
+import { publishRoomUpdate } from '../../../lib/room-utils';
 
 const ROOMS_SET = 'active_rooms';
 const ROOM_PREFIX = 'room:';
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
               // Put the room back in the queue (at the end, so others can join)
               await redis.rPush(WAITING_RANDOM_ROOMS, waitingRoomCode);
 
-              return new Response(JSON.stringify({ error: "Nickname taken by room creator. Please choose another." }), {
+              return new Response(JSON.stringify({ error: "Nickname taken. Please change!" }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' },
               });
@@ -84,6 +85,9 @@ export async function POST(request: NextRequest) {
 
             // Add player mapping
             await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, waitingRoomCode);
+
+            // Publish update to subscribers
+            await publishRoomUpdate(waitingRoomCode, roomData);
 
             return new Response(JSON.stringify({
               roomCode: waitingRoomCode,
@@ -167,6 +171,9 @@ export async function POST(request: NextRequest) {
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
 
+    // Publish update to subscribers
+    await publishRoomUpdate(roomCode, roomData);
+
     return new Response(JSON.stringify({
       roomCode,
       players: roomData.players,
@@ -211,6 +218,9 @@ export async function PUT(request: NextRequest) {
       });
     }
 
+    // Trigger cleanup of expired rooms on join
+    countActiveRooms(redis).catch(err => console.error('Background room cleanup error (Join):', err));
+
     // Get room data
     const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
 
@@ -223,82 +233,96 @@ export async function PUT(request: NextRequest) {
 
     const roomData = JSON.parse(roomDataString);
 
-    // Check if room is already full
-    if (roomData.players.length >= 2) {
-      return new Response(JSON.stringify({ error: 'Room is already full' }), {
-        status: 400,
+    // Check if room is full (max 2 players)
+    if (roomData.players.length >= 2 && !roomData.players.includes(playerId)) {
+      return new Response(JSON.stringify({ error: 'Room is full' }), {
+        status: 403,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // Check if player is already in this room
-    if (roomData.players.includes(playerId)) {
-      return new Response(JSON.stringify({ error: 'Player is already in this room' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    // Add player to room if not already in
+    if (!roomData.players.includes(playerId)) {
+      // Check for nickname conflict with existing players
+      if (nickname) {
+        const isNicknameTaken = roomData.players.some((pid: string) => {
+          const existingNickname = roomData.playerNicknames?.[pid] || '';
+          return existingNickname.toLowerCase() === nickname.toLowerCase();
+        });
 
-    // Check if nickname is the same as the creator's nickname
-    // The creator is always the first player in the players array
-    const creatorId = roomData.players[0];
-    const creatorNickname = roomData.playerNicknames?.[creatorId] || '';
+        if (isNicknameTaken) {
+          return new Response(JSON.stringify({ error: "Nickname taken. Please change!" }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
 
-    if (nickname && creatorNickname && nickname.toLowerCase() === creatorNickname.toLowerCase()) {
-      return new Response(JSON.stringify({ error: "Nickname cannot match room creator" }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+      roomData.players.push(playerId);
 
-    // Add player to room
-    roomData.players.push(playerId);
-
-    // Initialize score for the new player
-    if (roomData.scores) {
+      // Initialize score
+      if (!roomData.scores) roomData.scores = {};
       roomData.scores[playerId] = 0;
+
+      // Add nickname
+      if (!roomData.playerNicknames) roomData.playerNicknames = {};
+      roomData.playerNicknames[playerId] = nickname || '';
+
+      // Update room data in Redis
+      await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
+
+      // Refresh room activity
+      await redis.zAdd(ROOMS_SET, {
+        score: Date.now(),
+        value: roomCode
+      });
+
+      // Add player mapping
+      await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
+
+      // Publish update to subscribers
+      await publishRoomUpdate(roomCode, roomData);
     } else {
-      roomData.scores = { [playerId]: 0 };
+      // Player already in room, just update nickname if provided
+      if (nickname) {
+        // Check for conflict with OTHER players (not self)
+        const isNicknameTaken = roomData.players.some((pid: string) => {
+          if (pid === playerId) return false; // Don't check against self
+          const existingNickname = roomData.playerNicknames?.[pid] || '';
+          return existingNickname.toLowerCase() === nickname.toLowerCase();
+        });
+
+        if (isNicknameTaken) {
+          return new Response(JSON.stringify({ error: "Nickname taken. Please change!" }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (!roomData.playerNicknames) roomData.playerNicknames = {};
+        roomData.playerNicknames[playerId] = nickname;
+
+        // Update room data in Redis
+        await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
+
+        // Publish update to subscribers
+        await publishRoomUpdate(roomCode, roomData);
+      }
     }
-
-    // Add player nickname
-    if (!roomData.playerNicknames) {
-      roomData.playerNicknames = {};
-    }
-    roomData.playerNicknames[playerId] = nickname || '';
-
-    // If this is the second player, we don't start countdown automatically anymore
-    // Instead we wait for both players to be ready
-    if (roomData.players.length === 2) {
-      // roomData.status = 'countdown'; // REMOVED: Auto-start
-      // roomData.countdownStart = Date.now(); // REMOVED: Auto-start
-      console.log(`Room ${roomCode} full, waiting for players to be ready`);
-    }
-
-    // Update room data in Redis
-    await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
-
-    // Refresh room activity timestamp in ZSET
-    await redis.zAdd(ROOMS_SET, {
-      score: Date.now(),
-      value: roomCode
-    });
-
-    // Add player to this room
-    await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
 
     return new Response(JSON.stringify({
       roomCode,
       players: roomData.players,
-      playerNicknames: roomData.playerNicknames || {},
-      scores: roomData.scores || {},
-      words: roomData.words || [],
-      gameOver: roomData.gameOver || false,
-      winner: roomData.winner || null,
+      playerNicknames: roomData.playerNicknames,
+      scores: roomData.scores,
+      words: roomData.words,
+      gameOver: roomData.gameOver,
+      winner: roomData.winner,
       status: roomData.status,
       countdownStart: roomData.countdownStart,
-      readyPlayers: roomData.readyPlayers || [],
+      readyPlayers: roomData.readyPlayers,
       message: 'Joined room successfully',
+      type: roomData.type
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -314,27 +338,22 @@ export async function PUT(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const redis = getRedisClient();
+  const searchParams = request.nextUrl.searchParams;
+  const roomCode = searchParams.get('roomCode');
+  const playerId = searchParams.get('playerId');
 
+  // Ensure Redis is connected
   if (!redis.isOpen) {
     await redis.connect();
   }
 
   try {
-    const { searchParams } = new URL(request.url);
-    const roomCode = searchParams.get('roomCode');
-    const playerId = searchParams.get('playerId');
-
-    if (!roomCode || !playerId) {
-      return new Response(JSON.stringify({ error: 'Room code and player ID are required' }), {
+    if (!roomCode) {
+      return new Response(JSON.stringify({ error: 'Room code is required' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-
-    // Trigger cleanup of expired rooms
-    // We do this here to ensure the active_rooms ZSET stays clean without a dedicated cron job
-    // This is a "lazy" cleanup strategy triggered by user activity
-    countActiveRooms(redis).catch(err => console.error('Background room cleanup error:', err));
 
     // Get room data
     const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
@@ -348,12 +367,28 @@ export async function GET(request: NextRequest) {
 
     const roomData = JSON.parse(roomDataString);
 
-    // Check if the player is part of this room
-    if (!roomData.players.includes(playerId)) {
+    // If playerId is provided, verify they are in the room
+    if (playerId && !roomData.players.includes(playerId)) {
       return new Response(JSON.stringify({ error: 'Player not in this room' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    // Calculate remaining countdown time if in countdown state
+    let remainingCountdown = null;
+    if (roomData.status === 'countdown') {
+      if (roomData.countdownStart) {
+        const countdownStart = Number(roomData.countdownStart);
+        if (isNaN(countdownStart) || countdownStart <= 0) {
+          remainingCountdown = 10000; // Default to 10 seconds
+        } else {
+          const elapsed = Date.now() - countdownStart;
+          remainingCountdown = Math.max(0, 10000 - elapsed);
+        }
+      } else {
+        remainingCountdown = 10000;
+      }
     }
 
     return new Response(JSON.stringify({
@@ -367,6 +402,8 @@ export async function GET(request: NextRequest) {
       status: roomData.status,
       countdownStart: roomData.countdownStart,
       readyPlayers: roomData.readyPlayers || [],
+      remainingCountdown,
+      type: roomData.type
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

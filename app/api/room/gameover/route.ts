@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
 import { ROOM_TTL } from '@/lib/constants';
+import { publishRoomUpdate } from '../../../../lib/room-utils';
 
 const ROOM_PREFIX = 'room:';
 
@@ -47,6 +48,9 @@ export async function PUT(request: NextRequest) {
 
     // Update room data in Redis
     await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
+
+    // Publish update to subscribers
+    await publishRoomUpdate(roomCode, roomData);
 
     return new Response(JSON.stringify({
       roomCode,
