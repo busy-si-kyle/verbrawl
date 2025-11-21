@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { useRoom } from '@/components/room-provider';
+import { toast } from "sonner";
 
 export default function RaceModePage() {
   const router = useRouter();
@@ -33,6 +34,8 @@ export default function RaceModePage() {
     return '';
   });
 
+
+
   const handleCreateRoom = async () => {
     if (!playerId) return;
 
@@ -56,11 +59,11 @@ export default function RaceModePage() {
         // Redirect to the new room
         router.push(`/race/${data.roomCode}`);
       } else {
-        alert(data.error || 'Failed to create room. Please try again.');
+        toast.error(data.error || 'Failed to create room. Please try again.');
       }
     } catch (error) {
       console.error('Error creating room:', error);
-      alert('Failed to create room. Please try again.');
+      toast.error('Failed to create room. Please try again.');
     }
 
     setIsCreating(false);
@@ -90,11 +93,11 @@ export default function RaceModePage() {
         // Redirect to the room
         router.push(`/race/${data.roomCode}`);
       } else {
-        alert(data.error || 'Failed to join room. Please check the room code and try again.');
+        toast.error(data.error || 'Failed to join room. Please check the room code and try again.');
       }
     } catch (error) {
       console.error('Error joining room:', error);
-      alert('Failed to join room. Please check the room code and try again.');
+      toast.error('Failed to join room. Please check the room code and try again.');
     }
 
     setIsJoining(false);
@@ -169,19 +172,19 @@ export default function RaceModePage() {
                     </Button>
                   </div>
                 </div>
-                
+
                 <div className="pt-2">
-                  <Button 
-                    className="w-full" 
-                    variant="outline" 
-                    onClick={handleCreateRoom} 
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    onClick={handleCreateRoom}
                     disabled={isCreating || isJoining} // Disable when joining or creating
                   >
                     {isCreating ? 'Creating Room...' : 'Create New Room'}
                   </Button>
                 </div>
               </div>
-              
+
               <div className="pt-2">
                 <Button variant="secondary" className="w-full" disabled>
                   Join Random Opponent (Coming Soon)

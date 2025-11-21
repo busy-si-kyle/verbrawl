@@ -162,6 +162,18 @@ export async function PUT(request: NextRequest) {
       });
     }
 
+    // Check if nickname is the same as the creator's nickname
+    // The creator is always the first player in the players array
+    const creatorId = roomData.players[0];
+    const creatorNickname = roomData.playerNicknames?.[creatorId] || '';
+
+    if (nickname && creatorNickname && nickname.toLowerCase() === creatorNickname.toLowerCase()) {
+      return new Response(JSON.stringify({ error: "Nickname cannot match room creator" }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     // Add player to room
     roomData.players.push(playerId);
 
