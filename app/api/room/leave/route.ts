@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
-import { ROOM_TTL } from '@/lib/constants';
+import { ROOM_TTL, WAITING_RANDOM_ROOMS } from '@/lib/constants';
 
 const ROOM_PREFIX = 'room:';
 const PLAYER_PREFIX = 'player:';
@@ -68,6 +68,12 @@ export async function POST(request: NextRequest) {
       await redis.del(`${ROOM_PREFIX}${roomCode}`);
       const removedRooms = await redis.zRem('active_rooms', roomCode);
 
+      // If it was a random room, remove it from the waiting list
+      if (roomData.type === 'random') {
+        await redis.lRem(WAITING_RANDOM_ROOMS, 0, roomCode);
+        console.log(`[DEBUG] Removed room ${roomCode} from waiting_random_rooms list`);
+      }
+
       // Log if we removed a room from the set (for debugging orphaned entries)
       if (removedRooms > 0) {
         console.log(`Removed room ${roomCode} from active_rooms ZSET during leave`);
@@ -78,6 +84,15 @@ export async function POST(request: NextRequest) {
     } else {
       // Otherwise, update the room data in Redis
       await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
+
+      // If it's a random room, and it's now waiting with 1 player, make sure it's in the queue
+      if (roomData.type === 'random' && roomData.status === 'waiting' && roomData.players.length === 1) {
+        // We use LPOS to check if it's already there to avoid duplicates (requires Redis 6.0.6+)
+        // Alternatively, we can just remove and re-add to be safe and simple
+        await redis.lRem(WAITING_RANDOM_ROOMS, 0, roomCode);
+        await redis.rPush(WAITING_RANDOM_ROOMS, roomCode);
+        console.log(`[DEBUG] Re-queued room ${roomCode} to waiting_random_rooms list (1 player left)`);
+      }
     }
 
     // Remove player-to-room mapping

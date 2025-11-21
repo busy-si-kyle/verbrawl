@@ -103,6 +103,40 @@ export default function RaceModePage() {
     setIsJoining(false);
   };
 
+  const handleJoinRandom = async () => {
+    if (!playerId) return;
+
+    setIsJoining(true);
+
+    try {
+      const response = await fetch('/api/room', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          playerId,
+          nickname: nickname,
+          joinRandom: true
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Redirect to the room
+        router.push(`/race/${data.roomCode}`);
+      } else {
+        toast.error(data.error || 'Failed to join random room. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error joining random room:', error);
+      toast.error('Failed to join random room. Please try again.');
+    }
+
+    setIsJoining(false);
+  };
+
   // Save nickname to localStorage when it changes
   useEffect(() => {
     if (typeof window !== 'undefined' && nickname !== undefined) {
@@ -180,14 +214,19 @@ export default function RaceModePage() {
                     onClick={handleCreateRoom}
                     disabled={isCreating || isJoining} // Disable when joining or creating
                   >
-                    {isCreating ? 'Creating Room...' : 'Create New Room'}
+                    {isCreating ? 'Creating Room...' : 'Create Room'}
                   </Button>
                 </div>
               </div>
 
               <div className="pt-2">
-                <Button variant="secondary" className="w-full" disabled>
-                  Join Random Opponent (Coming Soon)
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={handleJoinRandom}
+                  disabled={isJoining || isCreating}
+                >
+                  {isJoining ? 'Finding Opponent...' : 'Join Random'}
                 </Button>
               </div>
             </CardContent>

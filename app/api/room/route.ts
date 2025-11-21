@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
-import { ROOM_TTL } from '@/lib/constants';
+import { ROOM_TTL, WAITING_RANDOM_ROOMS } from '@/lib/constants';
 import { countActiveRooms } from '@/lib/player-count-utils';
 
 const ROOMS_SET = 'active_rooms';
@@ -16,13 +16,96 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { playerId, nickname } = await request.json();
+    const { playerId, nickname, joinRandom } = await request.json();
 
     if (!playerId) {
       return new Response(JSON.stringify({ error: 'Player ID is required' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    // Handle Join Random Room Request
+    if (joinRandom) {
+      // Try to pop a room from the waiting list
+      const waitingRoomCode = await redis.lPop(WAITING_RANDOM_ROOMS);
+
+      if (waitingRoomCode) {
+        // Check if the room still exists and is valid
+        const roomDataString = await redis.get(`${ROOM_PREFIX}${waitingRoomCode}`);
+
+        if (roomDataString) {
+          const roomData = JSON.parse(roomDataString);
+
+          // Double check it's not full (shouldn't be if it was in the list, but good to be safe)
+          if (roomData.players.length < 2) {
+            // Check for nickname conflict
+            const creatorId = roomData.players[0];
+            const creatorNickname = roomData.playerNicknames?.[creatorId] || '';
+
+            if (nickname && creatorNickname && nickname.toLowerCase() === creatorNickname.toLowerCase()) {
+              // Nickname conflict!
+              // Put the room back in the queue (at the end, so others can join)
+              await redis.rPush(WAITING_RANDOM_ROOMS, waitingRoomCode);
+
+              return new Response(JSON.stringify({ error: "Nickname taken by room creator. Please choose another." }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+
+            // JOIN THE EXISTING RANDOM ROOM
+            console.log(`[DEBUG] Joining existing random room: ${waitingRoomCode}`);
+
+            // Add player to room
+            roomData.players.push(playerId);
+
+            // Initialize score
+            if (!roomData.scores) roomData.scores = {};
+            roomData.scores[playerId] = 0;
+
+            // Add nickname
+            if (!roomData.playerNicknames) roomData.playerNicknames = {};
+            roomData.playerNicknames[playerId] = nickname || '';
+
+            // Check if room is full (it should be now)
+            if (roomData.players.length === 2) {
+              console.log(`Room ${waitingRoomCode} full, waiting for players to be ready`);
+            }
+
+            // Update room data in Redis
+            await redis.setEx(`${ROOM_PREFIX}${waitingRoomCode}`, ROOM_TTL, JSON.stringify(roomData));
+
+            // Refresh room activity
+            await redis.zAdd(ROOMS_SET, {
+              score: Date.now(),
+              value: waitingRoomCode
+            });
+
+            // Add player mapping
+            await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, waitingRoomCode);
+
+            return new Response(JSON.stringify({
+              roomCode: waitingRoomCode,
+              players: roomData.players,
+              playerNicknames: roomData.playerNicknames,
+              scores: roomData.scores,
+              words: roomData.words,
+              gameOver: roomData.gameOver,
+              winner: roomData.winner,
+              status: roomData.status,
+              countdownStart: roomData.countdownStart,
+              readyPlayers: roomData.readyPlayers,
+              message: 'Joined random room successfully',
+              type: 'random'
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+        }
+        // If room didn't exist or was full, fall through to create a new one
+      }
     }
 
     // Generate a unique 5-digit room code
@@ -49,7 +132,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log(`[DEBUG] Generated room code: ${roomCode} for player: ${playerId}`);
+    console.log(`[DEBUG] Generated room code: ${roomCode} for player: ${playerId} (Random: ${joinRandom})`);
 
     // Create new room data
     const roomData = {
@@ -62,35 +145,28 @@ export async function POST(request: NextRequest) {
       status: 'waiting',
       countdownStart: null,
       readyPlayers: [],
+      type: joinRandom ? 'random' : 'custom' // Mark the room type
     };
 
     // Store room data in Redis
     await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
     console.log(`[DEBUG] Stored room ${roomCode} in Redis with TTL ${ROOM_TTL}`);
 
-    // Verify the TTL was set correctly
-    const actualTTL = await redis.ttl(`${ROOM_PREFIX}${roomCode}`);
-    console.log(`[DEBUG] Room ${roomCode} actual TTL in Redis: ${actualTTL} seconds`);
-
     // Add room to active rooms ZSET
     await redis.zAdd(ROOMS_SET, {
       score: Date.now(),
       value: roomCode
     });
-    console.log(`[DEBUG] Added room ${roomCode} to active rooms ZSET`);
+
+    // If it's a random room, add it to the waiting list
+    if (joinRandom) {
+      await redis.rPush(WAITING_RANDOM_ROOMS, roomCode);
+      console.log(`[DEBUG] Added room ${roomCode} to waiting_random_rooms list`);
+    }
 
     // Add player to this room
     await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
-    console.log(`[DEBUG] Assigned player ${playerId} to room ${roomCode}`);
 
-    // Verify the room was stored correctly
-    const verifyRoom = await redis.exists(`${ROOM_PREFIX}${roomCode}`);
-    console.log(`[DEBUG] Room ${roomCode} exists in Redis after creation?: ${verifyRoom}`);
-    if (!verifyRoom) {
-      console.error(`[ERROR] Room ${roomCode} was not persisted to Redis!`);
-    }
-
-    console.log(`[DEBUG] Returning success response for room ${roomCode}`);
     return new Response(JSON.stringify({
       roomCode,
       players: roomData.players,
@@ -103,6 +179,7 @@ export async function POST(request: NextRequest) {
       countdownStart: roomData.countdownStart,
       readyPlayers: roomData.readyPlayers,
       message: 'Room created successfully',
+      type: roomData.type
     }), {
       status: 201,
       headers: { 'Content-Type': 'application/json' },
