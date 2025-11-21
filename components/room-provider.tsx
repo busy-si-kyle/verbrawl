@@ -152,9 +152,23 @@ export function RoomProvider({ children }: { children: ReactNode }) {
 
       // Only try to reconnect if we're still in a room (roomCode exists)
       // This prevents reconnection attempts after leaving
-      setTimeout(() => {
+      setTimeout(async () => {
         // Check if we're still in the same room before reconnecting
         if (roomCodeRef.current === roomCode && storedPlayerId && connectToRoomUpdatesRef.current) {
+          // Verify room still exists before reconnecting
+          try {
+            const checkResponse = await fetch(`/api/room?roomCode=${roomCode}&playerId=${storedPlayerId}`);
+            if (checkResponse.status === 404) {
+              console.log('Room no longer exists, stopping SSE reconnection');
+              setRoomCode(null);
+              setStatus('none');
+              setPlayers([]);
+              return;
+            }
+          } catch (e) {
+            // Ignore network errors during check, just try to reconnect
+          }
+
           console.log('Attempting to reconnect SSE for room:', roomCode);
           connectToRoomUpdatesRef.current(roomCode, storedPlayerId);
         } else {
@@ -376,8 +390,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   }, [connectToRoomUpdatesRef]);
 
   const leaveRoom = useCallback(async () => {
-    if (eventSource) {
-      eventSource.close();
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
     }
 
     // If we have a room code and player ID, make an API call to properly leave the room
@@ -405,12 +419,12 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setReadyPlayers([]); // Reset ready players when leaving room
     setCountdownRemaining(null);
     setEventSource(null);
-  }, [eventSource, roomCode, storedPlayerId]);
+  }, [roomCode, storedPlayerId]);
 
   const resetRoom = useCallback(() => {
     // Use this to completely reset the room context
-    if (eventSource) {
-      eventSource.close();
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
     }
     setRoomCode(null);
     setStatus('none');
@@ -424,7 +438,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setCountdownRemaining(null);
     setServerCountdownStart(null);
     setEventSource(null);
-  }, [eventSource]);
+  }, []);
 
   const startGame = useCallback(() => {
     // This would be called when countdown completes
@@ -450,12 +464,21 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     }
   }, [roomCode]);
 
+  // Ref to track the current event source for cleanup
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Keep eventSourceRef in sync with state
+  useEffect(() => {
+    eventSourceRef.current = eventSource;
+  }, [eventSource]);
+
   // Cleanup on unmount only
   useEffect(() => {
     return () => {
-      if (eventSource) {
+      if (eventSourceRef.current) {
         console.log('Component unmounting, closing SSE connection');
-        eventSource.close();
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
     };
   }, []); // Empty deps - only run on mount/unmount
