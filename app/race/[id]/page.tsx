@@ -263,6 +263,7 @@ export default function RaceRoomPage() {
     if (key === 'Enter') {
       if (currentCol !== WORD_LENGTH) {
         // Row is not complete
+        toast.error('Not enough letters');
         return;
       }
 
