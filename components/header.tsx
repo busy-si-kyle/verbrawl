@@ -14,9 +14,9 @@ export function Header({ subtitle }: HeaderProps) {
       <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center">
         <Link href="/" className="flex items-center gap-3 flex-1">
           <div className="flex h-10 w-10 items-center justify-center">
-            <Image 
-              src="/verbrawl.svg" 
-              alt="Verbrawl Logo" 
+            <Image
+              src="/verbrawl.svg"
+              alt="Verbrawl Logo"
               width={32}
               height={32}
             />
@@ -28,9 +28,9 @@ export function Header({ subtitle }: HeaderProps) {
         </Link>
         <Dialog>
           <DialogTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="icon" 
+            <Button
+              variant="outline"
+              size="icon"
               className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg"
               aria-label="About Verbrawl"
             >
@@ -44,6 +44,7 @@ export function Header({ subtitle }: HeaderProps) {
             <div className="space-y-2">
               <p>Made by Busy Potato.</p>
               <p>Inspired by Ottomated&#39;s <a href="https://squabble.me" className="underline hover:no-underline" target="_blank" rel="noopener noreferrer">Squabble</a>.</p>
+              <p>Report any issues <a href="https://github.com/busy-si-kyle/verbrawl/issues" className="underline hover:no-underline" target="_blank" rel="noopener noreferrer">here</a>.</p>
             </div>
           </DialogContent>
         </Dialog>
