@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient, getRedisPubSubClient } from '@/lib/redis';
-import { ROOM_TTL } from '@/lib/constants';
+import { ROOM_TTL, COUNTDOWN_DURATION } from '@/lib/constants';
 import { countActiveRooms } from '@/lib/player-count-utils';
 import { ROOM_UPDATES_CHANNEL_PREFIX } from '../../../../lib/room-utils';
 
@@ -76,10 +76,10 @@ export async function GET(req: NextRequest) {
           if (roomData.countdownStart) {
             const countdownStart = Number(roomData.countdownStart);
             if (isNaN(countdownStart) || countdownStart <= 0) {
-              remainingCountdown = 10000; // Default to 10 seconds
+              remainingCountdown = COUNTDOWN_DURATION; // Default to 5 seconds
             } else {
               const elapsed = Date.now() - countdownStart;
-              remainingCountdown = Math.max(0, 10000 - elapsed);
+              remainingCountdown = Math.max(0, COUNTDOWN_DURATION - elapsed);
 
               // If countdown has finished, report status as in-progress
               if (remainingCountdown === 0) {
@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
               }
             }
           } else {
-            remainingCountdown = 10000;
+            remainingCountdown = COUNTDOWN_DURATION;
           }
         }
 
@@ -144,17 +144,39 @@ export async function GET(req: NextRequest) {
         console.error('Error subscribing to channel:', error);
       }
 
-      // 3. Heartbeat to keep connection alive
-      const heartbeatInterval = setInterval(() => {
+      // 3. Heartbeat and room existence check
+      const heartbeatInterval = setInterval(async () => {
         if (!isClosed) {
           try {
+            // Check if room still exists
+            const exists = await redis.exists(`${ROOM_PREFIX}${roomCode}`);
+            if (!exists) {
+              // Room expired
+              const expiredData = {
+                status: 'expired',
+                message: 'Session expired due to inactivity'
+              };
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(expiredData)}\n\n`));
+
+              // Close connection
+              clearInterval(heartbeatInterval);
+              isClosed = true;
+              if (subscriber.isOpen) {
+                await subscriber.unsubscribe(`${ROOM_UPDATES_CHANNEL_PREFIX}${roomCode}`);
+                await subscriber.disconnect();
+              }
+              controller.close();
+              return;
+            }
+
+            // Send heartbeat
             controller.enqueue(encoder.encode(`: heartbeat\n\n`));
           } catch (error) {
-            console.error('Error sending heartbeat:', error);
+            console.error('Error sending heartbeat/check:', error);
             clearInterval(heartbeatInterval);
           }
         }
-      }, HEARTBEAT_INTERVAL);
+      }, 10000); // Check every 10 seconds
 
       // Cleanup on connection close
       req.signal.addEventListener('abort', async () => {

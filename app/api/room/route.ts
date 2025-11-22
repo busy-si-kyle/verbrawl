@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
-import { ROOM_TTL, WAITING_RANDOM_ROOMS } from '@/lib/constants';
+import { ROOM_TTL, WAITING_RANDOM_ROOMS, COUNTDOWN_DURATION } from '@/lib/constants';
 import { countActiveRooms } from '@/lib/player-count-utils';
 import { publishRoomUpdate } from '../../../lib/room-utils';
 
@@ -384,13 +384,13 @@ export async function GET(request: NextRequest) {
       if (roomData.countdownStart) {
         const countdownStart = Number(roomData.countdownStart);
         if (isNaN(countdownStart) || countdownStart <= 0) {
-          remainingCountdown = 10000; // Default to 10 seconds
+          remainingCountdown = COUNTDOWN_DURATION;
         } else {
           const elapsed = Date.now() - countdownStart;
-          remainingCountdown = Math.max(0, 10000 - elapsed);
+          remainingCountdown = Math.max(0, COUNTDOWN_DURATION - elapsed);
         }
       } else {
-        remainingCountdown = 10000;
+        remainingCountdown = COUNTDOWN_DURATION;
       }
     }
 

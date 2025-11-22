@@ -1,6 +1,8 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from 'react';
+import { toast } from 'sonner';
+import { COUNTDOWN_DURATION } from '@/lib/constants';
 
 interface RoomContextType {
   roomCode: string | null;
@@ -81,6 +83,16 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     newEventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle expiration event
+        if (data.status === 'expired') {
+          toast.error('Session Expired', {
+            description: data.message || 'Room closed due to inactivity',
+          });
+          leaveRoom();
+          return;
+        }
+
         setRoomCode(data.roomCode);
         setPlayers(data.players);
         if (data.playerNicknames) {
@@ -116,7 +128,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
             setCountdownRemaining(data.remainingCountdown);
             // Calculate when the countdown started based on server info
             if (data.timestamp && data.remainingCountdown) {
-              const countdownDuration = 10000; // 10 seconds as used in SSE
+              const countdownDuration = COUNTDOWN_DURATION; // 5 seconds as used in SSE
               const now = Date.now();
               const elapsedSinceTimestamp = now - data.timestamp;
               const accurateRemaining = Math.max(0, data.remainingCountdown - elapsedSinceTimestamp);
@@ -130,7 +142,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
             }
           } else if (data.countdownStart) {
             // If server provides countdown start time, calculate remaining
-            const countdownDuration = 10000; // 10 seconds as used in SSE
+            const countdownDuration = COUNTDOWN_DURATION; // 5 seconds as used in SSE
             const elapsed = Date.now() - data.countdownStart;
             const remaining = Math.max(0, countdownDuration - elapsed);
             setCountdownRemaining(remaining);
@@ -224,7 +236,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       // Start client-side countdown timer
       interval = setInterval(() => {
         const elapsed = Date.now() - serverCountdownStart;
-        const clientSideRemaining = Math.max(0, 10000 - elapsed); // 10-second countdown as used in SSE
+        const clientSideRemaining = Math.max(0, COUNTDOWN_DURATION - elapsed); // 5-second countdown as used in SSE
 
         if (clientSideRemaining <= 0) {
           // Countdown finished, update status
