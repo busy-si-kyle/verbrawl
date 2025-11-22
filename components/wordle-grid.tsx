@@ -6,6 +6,7 @@ interface WordleGridProps {
   currentCol: number;
   revealed: (boolean | 'correct' | 'present' | 'absent')[][];
   solution?: string; // Current word solution for coloring letters
+  shakeRow?: number | null; // Row index to shake
 }
 
 // Compare a guess to the solution and return status for each letter
@@ -39,30 +40,31 @@ function getLetterStatuses(guess: string, solution: string): ('correct' | 'prese
   return result;
 }
 
-const WordleGrid: React.FC<WordleGridProps> = ({ 
-  board, 
-  currentRow, 
-  currentCol, 
+const WordleGrid: React.FC<WordleGridProps> = ({
+  board,
+  currentRow,
+  currentCol,
   revealed,
-  solution
+  solution,
+  shakeRow
 }) => {
   // Determine cell status based on the solution if solution is provided
   const getSolutionAwareStatus = (row: number, col: number): string => {
     const cellStatus = revealed[row][col];
-    
+
     // If it's already a status string, return it
     if (typeof cellStatus === 'string' && ['correct', 'present', 'absent'].includes(cellStatus)) {
       return cellStatus;
     }
-    
+
     // If it's false (not revealed yet), return empty string
     if (cellStatus === false) {
       return '';
     }
-    
+
     // If it's true but no solution provided, return 'submitted'
     if (cellStatus === true && !solution) return 'submitted'; // If no solution provided, just mark as submitted
-    
+
     // Fallback: calculate statuses based on the solution
     const letterStatuses = solution ? getLetterStatuses(board[row].join(''), solution) : [];
     return letterStatuses[col] || 'submitted';
@@ -71,17 +73,15 @@ const WordleGrid: React.FC<WordleGridProps> = ({
   return (
     <div className="wordle-grid">
       {board.map((row, rowIndex) => (
-        <div key={rowIndex} className="grid-row">
+        <div key={rowIndex} className={`grid-row ${shakeRow === rowIndex ? 'shake' : ''}`}>
           {row.map((letter, colIndex) => (
             <div
               key={`${rowIndex}-${colIndex}`}
-              className={`grid-cell ${
-                getSolutionAwareStatus(rowIndex, colIndex)
-              } ${
-                rowIndex === currentRow && colIndex === currentCol && !revealed[rowIndex][colIndex] 
-                  ? 'cell-input' 
+              className={`grid-cell ${getSolutionAwareStatus(rowIndex, colIndex)
+                } ${rowIndex === currentRow && colIndex === currentCol && !revealed[rowIndex][colIndex]
+                  ? 'cell-input'
                   : ''
-              }`}
+                }`}
             >
               {letter}
             </div>

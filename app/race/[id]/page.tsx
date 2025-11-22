@@ -75,6 +75,14 @@ export default function RaceRoomPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
 
+  const [shakeRow, setShakeRow] = useState<number | null>(null);
+
+  // Helper to trigger shake animation
+  const triggerShake = useCallback(() => {
+    setShakeRow(currentRow);
+    setTimeout(() => setShakeRow(null), 500);
+  }, [currentRow]);
+
   // Update local game over state based on room state
   useEffect(() => {
     if (roomGameOver && !gameOver) {
@@ -231,6 +239,7 @@ export default function RaceRoomPage() {
       setCurrentRow(0);
       setCurrentCol(0);
       setUsedKeys({});
+      setShakeRow(null); // Reset shake state
 
       prevWordIndexRef.current = currentWordIndex;
     }
@@ -266,6 +275,7 @@ export default function RaceRoomPage() {
     if (key === 'Enter') {
       if (currentCol !== WORD_LENGTH) {
         // Row is not complete
+        triggerShake();
         toast.error('Not enough letters');
         return;
       }
@@ -279,6 +289,7 @@ export default function RaceRoomPage() {
         const isValid = await isValidWord(currentWord);
         if (!isValid) {
           // Show toast notification for invalid word
+          triggerShake();
           toast.error('INVALID WORD', {
             description: 'TRY AGAIN',
           });
@@ -392,7 +403,7 @@ export default function RaceRoomPage() {
         setCurrentCol(currentCol + 1);
       }
     }
-  }, [gameOver, status, WORD_LENGTH, MAX_ATTEMPTS, board, currentRow, currentCol, words, currentWordIndex, scores, playerId, roomCode, revealed, usedKeys, isSubmitting, gameReady]);
+  }, [gameOver, status, WORD_LENGTH, MAX_ATTEMPTS, board, currentRow, currentCol, words, currentWordIndex, scores, playerId, roomCode, revealed, usedKeys, isSubmitting, gameReady, triggerShake]);
 
   // Handle physical keyboard events
   useEffect(() => {
@@ -698,6 +709,7 @@ export default function RaceRoomPage() {
                         currentCol={currentCol}
                         revealed={revealed}
                         solution={words[currentWordIndex]}
+                        shakeRow={shakeRow}
                       />
                     </div>
                     <div className="w-full mt-2">

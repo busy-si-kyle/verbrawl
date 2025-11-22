@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { CountdownTimer } from '@/components/countdown-timer';
 import { Header } from '@/components/header';
 import { Footer } from '@/components/footer';
@@ -25,6 +25,13 @@ export default function TimeLimitPage() {
   const [revealed, setRevealed] = useState<boolean[][]>(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
   const [usedKeys, setUsedKeys] = useState<Record<string, 'correct' | 'present' | 'absent'>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [shakeRow, setShakeRow] = useState<number | null>(null);
+
+  // Helper to trigger shake animation
+  const triggerShake = useCallback(() => {
+    setShakeRow(currentRow);
+    setTimeout(() => setShakeRow(null), 500);
+  }, [currentRow]);
 
   // Use ref to store timer ID to properly clear it
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -42,12 +49,12 @@ export default function TimeLimitPage() {
       if (key === 'ENTER' || key === 'RETURN') {
         event.preventDefault();
         handleKeyPress('ENTER');
-      } 
+      }
       // Handle Backspace key
       else if (key === 'BACKSPACE') {
         event.preventDefault();
         handleKeyPress('BACKSPACE');
-      } 
+      }
       // Handle letter keys
       else if (key.length === 1 && /^[A-Z]$/i.test(key)) { // Only letter keys
         event.preventDefault();
@@ -149,15 +156,17 @@ export default function TimeLimitPage() {
 
   const submitGuess = async () => {
     if (currentCol !== WORD_LENGTH) {
+      triggerShake();
       toast.error('Not enough letters');
       return;
     }
 
     setIsSubmitting(true);
     const currentWord = board[currentRow].join('').toLowerCase();
-    
+
     try {
       if (!await isValidWord(currentWord)) {
+        triggerShake();
         toast.error('Not in word list');
         return;
       }
@@ -179,10 +188,10 @@ export default function TimeLimitPage() {
       for (let i = 0; i < WORD_LENGTH; i++) {
         const letter = currentWord[i].toUpperCase();
         const status = wordStatuses[i];
-        
-        if (!newUsedKeys[letter] || 
-            (newUsedKeys[letter] === 'absent' && status !== 'absent') ||
-            (newUsedKeys[letter] === 'present' && status === 'correct')) {
+
+        if (!newUsedKeys[letter] ||
+          (newUsedKeys[letter] === 'absent' && status !== 'absent') ||
+          (newUsedKeys[letter] === 'present' && status === 'correct')) {
           newUsedKeys[letter] = status;
         }
       }
@@ -194,7 +203,7 @@ export default function TimeLimitPage() {
         toast.success('Word completed!', {
           description: `You solved: ${targetWord}`,
         });
-        
+
         // Move to the next word immediately
         await loadNextWord();
       } else if (currentRow === MAX_ATTEMPTS - 1) {
@@ -202,7 +211,7 @@ export default function TimeLimitPage() {
         toast.error('No more guesses', {
           description: `The word was: ${targetWord}`,
         });
-        
+
         // Move to the next word immediately
         await loadNextWord();
       } else {
@@ -274,12 +283,12 @@ export default function TimeLimitPage() {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    
+
     try {
       // Get a new word
       const words = await getRandomWords(1);
       const word = words[0];
-      
+
       // Reset game state - using a functional approach to ensure proper sequence
       setTargetWord(word.toUpperCase());
       setBoard(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill('')));
@@ -294,7 +303,7 @@ export default function TimeLimitPage() {
       setUsedKeys({});
       // Most importantly, reset remaining time to full 2 minutes AFTER clearing timer
       setRemainingTime(120000); // Reset to 2 minutes
-      
+
       // Remove focus from the restart button to prevent keyboard issues
       if (restartButtonRef.current) {
         restartButtonRef.current.blur();
@@ -323,18 +332,18 @@ export default function TimeLimitPage() {
                     <span className="text-sm font-medium">Score</span>
                     <span className="text-lg font-bold">{score}</span>
                   </div>
-                  
+
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4" />
-                    <CountdownTimer 
-                      remainingTime={remainingTime} 
-                      onComplete={handleTimeUp} 
+                    <CountdownTimer
+                      remainingTime={remainingTime}
+                      onComplete={handleTimeUp}
                       timerStarted={timerStarted}
                       showInMinutes={true}
                     />
                   </div>
                 </div>
-                
+
                 <div className="flex justify-center">
                   <button
                     ref={restartButtonRef}
@@ -347,17 +356,17 @@ export default function TimeLimitPage() {
                 </div>
               </div>
             </div>
-            
+
             {/* Right column: Wordle grid and keyboard */}
             <div className="md:w-2/3 flex justify-center items-center">
               <div className="w-full max-w-md flex flex-col items-center">
                 <div className="w-full -mt-2">
                   {/* Word grid using the WordleGrid component */}
-                  <WordleGrid 
+                  <WordleGrid
                     board={board}
                     currentRow={currentRow}
                     currentCol={currentCol}
-                    revealed={revealed.map((row, i) => 
+                    revealed={revealed.map((row, i) =>
                       row.map((isRevealed, j) => {
                         if (isRevealed && targetWord) {
                           const statuses = getLetterStatuses(board[i].join('').toUpperCase(), targetWord);
@@ -367,12 +376,13 @@ export default function TimeLimitPage() {
                       })
                     )}
                     solution={targetWord}
+                    shakeRow={shakeRow}
                   />
                 </div>
                 <div className="w-full mt-2">
                   {/* Keyboard */}
-                  <Keyboard 
-                    usedKeys={usedKeys} 
+                  <Keyboard
+                    usedKeys={usedKeys}
                     onKeyPress={(key) => {
                       if (gameStatus === 'playing') {
                         handleKeyPress(key);

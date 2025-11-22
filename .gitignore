@@ -43,3 +43,6 @@ next-env.d.ts
 #
 /.qwen/
 GEMINI.md
+
+# editor
+.vscode
