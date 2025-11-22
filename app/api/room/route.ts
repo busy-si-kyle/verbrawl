@@ -149,6 +149,7 @@ export async function POST(request: NextRequest) {
       status: 'waiting',
       countdownStart: null,
       readyPlayers: [],
+      currentWordIndex: 0,
       type: joinRandom ? 'random' : 'custom' // Mark the room type
     };
 
@@ -185,6 +186,7 @@ export async function POST(request: NextRequest) {
       status: roomData.status,
       countdownStart: roomData.countdownStart,
       readyPlayers: roomData.readyPlayers,
+      currentWordIndex: roomData.currentWordIndex || 0,
       message: 'Room created successfully',
       type: roomData.type
     }), {
@@ -321,6 +323,7 @@ export async function PUT(request: NextRequest) {
       status: roomData.status,
       countdownStart: roomData.countdownStart,
       readyPlayers: roomData.readyPlayers,
+      currentWordIndex: roomData.currentWordIndex || 0,
       message: 'Joined room successfully',
       type: roomData.type
     }), {
@@ -402,6 +405,7 @@ export async function GET(request: NextRequest) {
       status: roomData.status,
       countdownStart: roomData.countdownStart,
       readyPlayers: roomData.readyPlayers || [],
+      currentWordIndex: roomData.currentWordIndex || 0,
       remainingCountdown,
       type: roomData.type
     }), {

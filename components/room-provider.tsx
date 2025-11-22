@@ -13,6 +13,8 @@ interface RoomContextType {
   winner: string | null;
   countdownRemaining: number | null;
   readyPlayers: string[];
+  currentWordIndex: number;
+  lastAction: { playerId: string; action: 'correct' | 'failed'; solution: string; timestamp: number } | null;
   createRoom: (playerId: string) => Promise<boolean>;
   joinRoom: (roomCode: string, playerId: string) => Promise<boolean>;
   getRoomInfo: (roomCode: string, playerId: string) => Promise<boolean>;
@@ -36,6 +38,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [countdownRemaining, setCountdownRemaining] = useState<number | null>(null);
   const [serverCountdownStart, setServerCountdownStart] = useState<number | null>(null);
   const [readyPlayers, setReadyPlayers] = useState<string[]>([]);
+  const [currentWordIndex, setCurrentWordIndex] = useState<number>(0);
+  const [lastAction, setLastAction] = useState<{ playerId: string; action: 'correct' | 'failed'; solution: string; timestamp: number } | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
 
@@ -85,6 +89,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         if (data.scores) {
           setScores(data.scores);
         }
+        if (data.lastAction) {
+          setLastAction(data.lastAction);
+        }
         if (data.words) {
           setWords(data.words);
         }
@@ -96,6 +103,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         }
         if (data.readyPlayers) {
           setReadyPlayers(data.readyPlayers);
+        }
+        if ('currentWordIndex' in data) {
+          setCurrentWordIndex(data.currentWordIndex);
         }
         setStatus(data.status as 'none' | 'waiting' | 'countdown' | 'in-progress');
 
@@ -340,6 +350,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         if (connectToRoomUpdatesRef.current) {
           connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
         }
+        setLastAction(null); // Reset last action when joining a room
         return true;
       } else {
         console.error('Error joining room:', data.error);
@@ -378,6 +389,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         if (connectToRoomUpdatesRef.current) {
           connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
         }
+        setLastAction(null); // Reset last action when getting room info
         return true;
       } else {
         console.error('Error getting room info:', data.error);
@@ -417,7 +429,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setGameOver(false); // Reset game over state when leaving room
     setWinner(null); // Reset winner when leaving room
     setReadyPlayers([]); // Reset ready players when leaving room
+    setReadyPlayers([]); // Reset ready players when leaving room
     setCountdownRemaining(null);
+    setLastAction(null); // Reset last action when leaving room
     setEventSource(null);
   }, [roomCode, storedPlayerId]);
 
@@ -437,6 +451,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setReadyPlayers([]); // Reset ready players when resetting room
     setCountdownRemaining(null);
     setServerCountdownStart(null);
+    setLastAction(null); // Reset last action when resetting room
     setEventSource(null);
   }, []);
 
@@ -494,6 +509,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     winner,
     countdownRemaining,
     readyPlayers,
+    currentWordIndex,
+    lastAction,
     createRoom,
     joinRoom,
     getRoomInfo,

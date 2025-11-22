@@ -97,6 +97,8 @@ export async function GET(req: NextRequest) {
           playerNicknames: roomData.playerNicknames || {},
           scores: roomData.scores || {},
           words: roomData.words || [],
+          currentWordIndex: roomData.currentWordIndex || 0,
+          lastAction: roomData.lastAction || null,
           gameOver: roomData.gameOver || false,
           winner: roomData.winner || null,
           status,

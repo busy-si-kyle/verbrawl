@@ -28,10 +28,13 @@ export default function RaceRoomPage() {
     winner: roomWinner, // Get winner from room provider
     countdownRemaining,
     readyPlayers,
+    currentWordIndex, // Get shared currentWordIndex
+    lastAction, // Get last action for opponent notifications
     toggleReady,
     getRoomInfo,
     leaveRoom
   } = useRoom();
+
   const [isJoining, setIsJoining] = useState(true); // Set to true initially since we're trying to join
   const [initialLoad, setInitialLoad] = useState(true);
   // Track if we've seen the first status update from SSE to prevent flickering
@@ -62,7 +65,7 @@ export default function RaceRoomPage() {
 
 
   // Game state
-  const [currentWordIndex, setCurrentWordIndex] = useState(0);
+  // currentWordIndex is now from room context, not local state
   const [words, setWords] = useState<string[]>([]); // The 20 shared words
   const [gameInitialized, setGameInitialized] = useState(false); // Track if game is properly initialized
   const [gameReady, setGameReady] = useState(false); // Track if game words are loaded and ready
@@ -214,47 +217,47 @@ export default function RaceRoomPage() {
     }
   }, [status, hasReceivedStatusUpdate]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reset grid and keyboard when currentWordIndex changes (from SSE or local advancement)
+  const prevWordIndexRef = useRef(currentWordIndex);
+  useEffect(() => {
+    // Reset when currentWordIndex changes (but not on initial mount with index 0)
+    if (currentWordIndex !== prevWordIndexRef.current) {
+      // Reset the board for the new word
+      const newBoard = Array(MAX_ATTEMPTS).fill(null).map(() =>
+        Array(WORD_LENGTH).fill('')
+      );
+      setBoard(newBoard);
+      setRevealed(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
+      setCurrentRow(0);
+      setCurrentCol(0);
+      setUsedKeys({});
 
-
-  // Update player score by sending to backend
-  const updatePlayerScore = useCallback(async (playerId: string, points: number) => {
-    if (!roomCode) return;
-
-    try {
-      const response = await fetch('/api/room/score', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          roomCode,
-          playerId,
-          points
-        }),
-      });
-
-      if (!response.ok) {
-        console.error('Failed to update score on server');
-      }
-    } catch (error) {
-      console.error('Error updating score:', error);
+      prevWordIndexRef.current = currentWordIndex;
     }
-  }, [roomCode]);
+  }, [currentWordIndex, MAX_ATTEMPTS, WORD_LENGTH]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Helper function to reset for a new word
-  const resetCurrentRow = useCallback(() => {
-    const newBoard = [...board];
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      for (let j = 0; j < WORD_LENGTH; j++) {
-        newBoard[i][j] = '';
+  // Show toasts for opponent actions
+  useEffect(() => {
+    if (lastAction && lastAction.playerId !== playerId) {
+      // This action was performed by the opponent
+      const opponentName = playerNicknames[lastAction.playerId] || 'Opponent';
+
+      if (lastAction.action === 'correct') {
+        toast.success('Opponent guessed it first!', {
+          description: `The word was ${lastAction.solution?.toUpperCase() || ''}`,
+        });
+      } else if (lastAction.action === 'failed') {
+        toast.error('Opponent failed!', {
+          description: `The word was ${lastAction.solution?.toUpperCase() || ''}`,
+        });
       }
     }
-    setBoard(newBoard);
-    setRevealed(Array(MAX_ATTEMPTS).fill(null).map(() => Array(WORD_LENGTH).fill(false)));
-    setCurrentRow(0);
-    setCurrentCol(0);
-    setUsedKeys({});
-  }, [board, MAX_ATTEMPTS, WORD_LENGTH]);
+  }, [lastAction, playerId, playerNicknames]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+
+
+  // Handle keyboard input for the Wordle grid
 
   // Handle keyboard input for the Wordle grid
   const handleKeyPress = useCallback(async (key: string) => {
@@ -322,64 +325,25 @@ export default function RaceRoomPage() {
 
         // Check if the word was guessed correctly
         if (currentWord === solution.toLowerCase()) {
-          // Calculate what the new score should be based on current state for win condition check
-          const currentScore = (scores[playerId] || 0) + 1;
+          // Show success notification
+          toast.success('CORRECT!', {
+            description: solution.toUpperCase(),
+          });
 
-          // Update player's score on backend
-          await updatePlayerScore(playerId, 1);
-
-          if (currentScore >= 5) {
-            // Set game over state in the room
-            if (roomCode) {
-              try {
-                await fetch('/api/room/gameover', {
-                  method: 'PUT',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    roomCode,
-                    playerId,
-                    winner: playerId
-                  }),
-                });
-              } catch (error) {
-                console.error('Error setting game over:', error);
-              }
-            }
-          } else {
-            // Show success notification
-            toast.success('CORRECT!', {
-              description: solution.toUpperCase(),
+          // Call API to advance word and update score
+          try {
+            await fetch('/api/room/advanceword', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                roomCode,
+                playerId,
+                success: true,
+                solution: solution
+              })
             });
-
-            // Move to next word
-            if (currentWordIndex < words.length - 1) {
-              setCurrentWordIndex(currentWordIndex + 1);
-              // Reset for the new word
-              resetCurrentRow();
-            } else {
-              // Game is over, all words have been completed
-              // This shouldn't happen in normal gameplay since it's a race to 5 points
-              // But if all words are done before anyone reaches 5, set game over
-              if (roomCode) {
-                try {
-                  await fetch('/api/room/gameover', {
-                    method: 'PUT',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      roomCode,
-                      playerId,
-                      winner: null // No winner if time runs out
-                    }),
-                  });
-                } catch (error) {
-                  console.error('Error setting game over:', error);
-                }
-              }
-            }
+          } catch (error) {
+            console.error('Error advancing word:', error);
           }
         } else if (currentRow === MAX_ATTEMPTS - 1) {
           // Player has used all attempts for this word
@@ -389,32 +353,20 @@ export default function RaceRoomPage() {
             });
           }
 
-          // Move to next word
-          if (currentWordIndex < words.length - 1) {
-            setCurrentWordIndex(currentWordIndex + 1);
-            // Reset for the new word
-            resetCurrentRow();
-          } else {
-            // Game is over, all words attempted
-            // This shouldn't happen in normal gameplay since it's a race to 5 points
-            // But if all words are done before anyone reaches 5, set game over
-            if (roomCode) {
-              try {
-                await fetch('/api/room/gameover', {
-                  method: 'PUT',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    roomCode,
-                    playerId,
-                    winner: null // No winner if time runs out
-                  }),
-                });
-              } catch (error) {
-                console.error('Error setting game over:', error);
-              }
-            }
+          // Call API to advance word (failure case)
+          try {
+            await fetch('/api/room/advanceword', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                roomCode,
+                playerId,
+                success: false,
+                solution: solution
+              })
+            });
+          } catch (error) {
+            console.error('Error advancing word:', error);
           }
         } else {
           // Move to next row
@@ -440,7 +392,7 @@ export default function RaceRoomPage() {
         setCurrentCol(currentCol + 1);
       }
     }
-  }, [gameOver, status, WORD_LENGTH, MAX_ATTEMPTS, board, currentRow, currentCol, words, currentWordIndex, scores, playerId, roomCode, revealed, usedKeys, updatePlayerScore, resetCurrentRow, isSubmitting]);
+  }, [gameOver, status, WORD_LENGTH, MAX_ATTEMPTS, board, currentRow, currentCol, words, currentWordIndex, scores, playerId, roomCode, revealed, usedKeys, isSubmitting, gameReady]);
 
   // Handle physical keyboard events
   useEffect(() => {
