@@ -1,6 +1,7 @@
 // app/api/player-count/remove/route.ts
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
+import { PLAYER_COUNT_CHANNEL } from '@/lib/player-count-constants';
 
 const SESSION_PREFIX = 'session:';
 const ACTIVE_SESSIONS_SET = 'active_sessions';
@@ -26,6 +27,11 @@ export async function POST(request: NextRequest) {
 
     // Remove session from the active sessions set (ZSET)
     await redis.zRem(ACTIVE_SESSIONS_SET, sessionId);
+
+    // Notify subscribers that count changed
+    await redis.publish(PLAYER_COUNT_CHANNEL, JSON.stringify({
+      timestamp: Date.now()
+    }));
 
     // No need to delete individual key as we don't use it anymore
 

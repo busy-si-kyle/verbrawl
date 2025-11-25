@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
 import { countActiveSessions } from '@/lib/player-count-utils';
+import { PLAYER_COUNT_CHANNEL } from '@/lib/player-count-constants';
 
 const ACTIVE_SESSIONS_SET = 'active_sessions';
 
@@ -24,6 +25,11 @@ export async function GET(request: NextRequest) {
         score: Date.now(),
         value: sessionId
       });
+
+      // Notify subscribers that count changed
+      await redis.publish(PLAYER_COUNT_CHANNEL, JSON.stringify({
+        timestamp: Date.now()
+      }));
     }
 
     // Get the count of active sessions (automatically cleans up expired ones)
