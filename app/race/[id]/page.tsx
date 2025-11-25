@@ -248,17 +248,23 @@ export default function RaceRoomPage() {
   // Show toasts for opponent actions
   useEffect(() => {
     if (lastAction && lastAction.playerId !== playerId) {
-      // This action was performed by the opponent
-      const opponentName = playerNicknames[lastAction.playerId] || 'Opponent';
+      // Check if this notification has already been shown
+      if (lastAction.timestamp && lastAction.timestamp !== lastShownNotificationTimestamp.current) {
+        // This action was performed by the opponent and hasn't been shown yet
+        const opponentName = playerNicknames[lastAction.playerId] || 'Opponent';
 
-      if (lastAction.action === 'correct') {
-        toast.success('Opponent guessed it first!', {
-          description: `The word was ${lastAction.solution?.toUpperCase() || ''}`,
-        });
-      } else if (lastAction.action === 'failed') {
-        toast.error('Opponent failed!', {
-          description: `The word was ${lastAction.solution?.toUpperCase() || ''}`,
-        });
+        if (lastAction.action === 'correct') {
+          toast.success('Opponent guessed it first!', {
+            description: `The word was ${lastAction.solution?.toUpperCase() || ''}`,
+          });
+        } else if (lastAction.action === 'failed') {
+          toast.error('Opponent failed!', {
+            description: `The word was ${lastAction.solution?.toUpperCase() || ''}`,
+          });
+        }
+        
+        // Mark this notification as shown
+        lastShownNotificationTimestamp.current = lastAction.timestamp;
       }
     }
   }, [lastAction, playerId, playerNicknames]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -427,6 +433,8 @@ export default function RaceRoomPage() {
 
   // Track if we are explicitly leaving via the button
   const isLeavingRef = useRef(false);
+  // Track the timestamp of the last notification shown to prevent replays
+  const lastShownNotificationTimestamp = useRef<number | null>(null);
 
   const handleLeaveRoom = () => {
     isLeavingRef.current = true;
