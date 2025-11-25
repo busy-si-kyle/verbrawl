@@ -144,39 +144,18 @@ export async function GET(req: NextRequest) {
         console.error('Error subscribing to channel:', error);
       }
 
-      // 3. Heartbeat and room existence check
-      const heartbeatInterval = setInterval(async () => {
+      // 3. Heartbeat to keep connection alive
+      const heartbeatInterval = setInterval(() => {
         if (!isClosed) {
           try {
-            // Check if room still exists
-            const exists = await redis.exists(`${ROOM_PREFIX}${roomCode}`);
-            if (!exists) {
-              // Room expired
-              const expiredData = {
-                status: 'expired',
-                message: 'Session expired due to inactivity'
-              };
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(expiredData)}\n\n`));
-
-              // Close connection
-              clearInterval(heartbeatInterval);
-              isClosed = true;
-              if (subscriber.isOpen) {
-                await subscriber.unsubscribe(`${ROOM_UPDATES_CHANNEL_PREFIX}${roomCode}`);
-                await subscriber.disconnect();
-              }
-              controller.close();
-              return;
-            }
-
-            // Send heartbeat
+            // Just send heartbeat - Pub/Sub handles room updates
             controller.enqueue(encoder.encode(`: heartbeat\n\n`));
           } catch (error) {
-            console.error('Error sending heartbeat/check:', error);
+            console.error('Error sending heartbeat:', error);
             clearInterval(heartbeatInterval);
           }
         }
-      }, 10000); // Check every 10 seconds
+      }, 30000); // Heartbeat every 30 seconds
 
       // Cleanup on connection close
       req.signal.addEventListener('abort', async () => {

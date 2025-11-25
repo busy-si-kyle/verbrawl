@@ -4,7 +4,7 @@ import { countActiveSessions } from '@/lib/player-count-utils';
 
 const ACTIVE_SESSIONS_SET = 'active_sessions';
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const UPDATE_INTERVAL = 5000; // 5 seconds
+const UPDATE_INTERVAL = 30000; // 30 seconds - reduced from 5s to save Redis calls
 
 export const dynamic = 'force-dynamic';
 

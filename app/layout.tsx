@@ -6,6 +6,7 @@ import { RealtimePlayerCountProvider } from "@/components/realtime-player-count-
 import { SessionTracker } from "@/components/session-tracker";
 import { RoomProvider } from "@/components/room-provider";
 import ToastProvider from "@/components/toast-provider";
+import { Analytics } from "@vercel/analytics/react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,15 +41,16 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-          <RoomProvider>
-            <RealtimePlayerCountProvider>
-              <ThemeProvider>
-                {children}
-                <SessionTracker />
-              </ThemeProvider>
-            </RealtimePlayerCountProvider>
-          </RoomProvider>
-          <ToastProvider />
+        <RoomProvider>
+          <RealtimePlayerCountProvider>
+            <ThemeProvider>
+              {children}
+              <SessionTracker />
+            </ThemeProvider>
+          </RealtimePlayerCountProvider>
+        </RoomProvider>
+        <ToastProvider />
+        <Analytics />
       </body>
     </html>
   );
