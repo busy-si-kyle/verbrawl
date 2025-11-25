@@ -126,20 +126,13 @@ export function RoomProvider({ children }: { children: ReactNode }) {
           if ('remainingCountdown' in data) {
             // Use server-provided remaining countdown time
             setCountdownRemaining(data.remainingCountdown);
-            // Calculate when the countdown started based on server info
-            if (data.timestamp && data.remainingCountdown) {
-              const countdownDuration = COUNTDOWN_DURATION; // 5 seconds as used in SSE
-              const now = Date.now();
-              const elapsedSinceTimestamp = now - data.timestamp;
-              const accurateRemaining = Math.max(0, data.remainingCountdown - elapsedSinceTimestamp);
-              setCountdownRemaining(accurateRemaining);
 
-              // Calculate when the countdown actually started
-              const countdownStart = now - (countdownDuration - accurateRemaining);
-              setServerCountdownStart(countdownStart);
-            } else {
-              setCountdownRemaining(data.remainingCountdown);
-            }
+            // Calculate when the countdown started relative to NOW on the client
+            // This ensures the local interval continues from the correct point without relying on synchronized clocks
+            const countdownDuration = COUNTDOWN_DURATION;
+            const now = Date.now();
+            const countdownStart = now - (countdownDuration - data.remainingCountdown);
+            setServerCountdownStart(countdownStart);
           } else if (data.countdownStart) {
             // If server provides countdown start time, calculate remaining
             const countdownDuration = COUNTDOWN_DURATION; // 5 seconds as used in SSE
@@ -205,7 +198,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     };
 
     setEventSource(newEventSource);
-  }, [eventSource]); // Dependencies are captured properly
+  }, [eventSource]);
 
   // Update ref whenever createRoomUpdatesConnection changes
   useEffect(() => {
