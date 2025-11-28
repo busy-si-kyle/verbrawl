@@ -74,14 +74,17 @@ export async function POST(request: NextRequest) {
               console.log(`Room ${waitingRoomCode} full, waiting for players to be ready`);
             }
 
-            // Update room data in Redis
-            await redis.setEx(`${ROOM_PREFIX}${waitingRoomCode}`, ROOM_TTL, JSON.stringify(roomData));
-
             // Refresh room activity
             await redis.zAdd(ROOMS_SET, {
               score: Date.now(),
               value: waitingRoomCode
             });
+
+            // Update lastActivity
+            roomData.lastActivity = Date.now();
+
+            // Update room data in Redis
+            await redis.setEx(`${ROOM_PREFIX}${waitingRoomCode}`, ROOM_TTL, JSON.stringify(roomData));
 
             // Add player mapping
             await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, waitingRoomCode);
@@ -101,7 +104,8 @@ export async function POST(request: NextRequest) {
               countdownStart: roomData.countdownStart,
               readyPlayers: roomData.readyPlayers,
               message: 'Joined random room successfully',
-              type: 'random'
+              type: 'random',
+              lastActivity: roomData.lastActivity
             }), {
               status: 200,
               headers: { 'Content-Type': 'application/json' },
@@ -150,7 +154,8 @@ export async function POST(request: NextRequest) {
       countdownStart: null,
       readyPlayers: [],
       currentWordIndex: 0,
-      type: joinRandom ? 'random' : 'custom' // Mark the room type
+      type: joinRandom ? 'random' : 'custom', // Mark the room type
+      lastActivity: Date.now()
     };
 
     // Store room data in Redis
@@ -188,7 +193,8 @@ export async function POST(request: NextRequest) {
       readyPlayers: roomData.readyPlayers,
       currentWordIndex: roomData.currentWordIndex || 0,
       message: 'Room created successfully',
-      type: roomData.type
+      type: roomData.type,
+      lastActivity: roomData.lastActivity
     }), {
       status: 201,
       headers: { 'Content-Type': 'application/json' },
@@ -270,6 +276,9 @@ export async function PUT(request: NextRequest) {
       if (!roomData.playerNicknames) roomData.playerNicknames = {};
       roomData.playerNicknames[playerId] = nickname || '';
 
+      // Update lastActivity
+      roomData.lastActivity = Date.now();
+
       // Update room data in Redis
       await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
 
@@ -304,6 +313,9 @@ export async function PUT(request: NextRequest) {
         if (!roomData.playerNicknames) roomData.playerNicknames = {};
         roomData.playerNicknames[playerId] = nickname;
 
+        // Update lastActivity
+        roomData.lastActivity = Date.now();
+
         // Update room data in Redis
         await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
 
@@ -325,7 +337,8 @@ export async function PUT(request: NextRequest) {
       readyPlayers: roomData.readyPlayers,
       currentWordIndex: roomData.currentWordIndex || 0,
       message: 'Joined room successfully',
-      type: roomData.type
+      type: roomData.type,
+      lastActivity: roomData.lastActivity
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -407,7 +420,8 @@ export async function GET(request: NextRequest) {
       readyPlayers: roomData.readyPlayers || [],
       currentWordIndex: roomData.currentWordIndex || 0,
       remainingCountdown,
-      type: roomData.type
+      type: roomData.type,
+      lastActivity: roomData.lastActivity
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

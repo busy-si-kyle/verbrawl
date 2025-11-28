@@ -262,7 +262,7 @@ export default function RaceRoomPage() {
             description: `The word was ${lastAction.solution?.toUpperCase() || ''}`,
           });
         }
-        
+
         // Mark this notification as shown
         lastShownNotificationTimestamp.current = lastAction.timestamp;
       }
@@ -511,6 +511,33 @@ export default function RaceRoomPage() {
       return 'Opponent';
     }
   };
+
+  // Handle expired status
+  if (status === 'expired') {
+    return (
+      <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
+        <Header subtitle="Race Mode" />
+        <main className="flex flex-1 flex-col items-center justify-center p-4 sm:p-4 md:p-4 lg:py-4">
+          <div className="w-full max-w-2xl">
+            <Card className="border border-gray-700">
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl sm:text-3xl font-bold text-red-500">Room Expired</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="text-center py-8">
+                  <p className="text-lg mb-6">
+                    This room has been closed due to inactivity.
+                  </p>
+                  <Button onClick={handleLeaveRoom}>Return to Lobby</Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   // Wait until we've received the first status update to prevent flickering
   if (!hasReceivedStatusUpdate) {

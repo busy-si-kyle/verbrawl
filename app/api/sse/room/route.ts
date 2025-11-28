@@ -105,7 +105,8 @@ export async function GET(req: NextRequest) {
           countdownStart: roomData.countdownStart,
           readyPlayers: roomData.readyPlayers || [],
           remainingCountdown,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          lastActivity: roomData.lastActivity
         };
       };
 
@@ -145,9 +146,26 @@ export async function GET(req: NextRequest) {
       }
 
       // 3. Heartbeat to keep connection alive
-      const heartbeatInterval = setInterval(() => {
+      const heartbeatInterval = setInterval(async () => {
         if (!isClosed) {
           try {
+            // Check if room still exists
+            const exists = await redis.exists(`${ROOM_PREFIX}${roomCode}`);
+            if (!exists) {
+              const expiredData = { status: 'expired', message: 'Room closed due to inactivity' };
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(expiredData)}\n\n`));
+
+              // Close connection
+              clearInterval(heartbeatInterval);
+              isClosed = true;
+              controller.close();
+              if (subscriber.isOpen) {
+                await subscriber.unsubscribe(`${ROOM_UPDATES_CHANNEL_PREFIX}${roomCode}`);
+                await subscriber.disconnect();
+              }
+              return;
+            }
+
             // Just send heartbeat - Pub/Sub handles room updates
             controller.enqueue(encoder.encode(`: heartbeat\n\n`));
           } catch (error) {

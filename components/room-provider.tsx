@@ -2,11 +2,11 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { COUNTDOWN_DURATION } from '@/lib/constants';
+import { ROOM_TTL, COUNTDOWN_DURATION } from '@/lib/constants';
 
 interface RoomContextType {
   roomCode: string | null;
-  status: 'none' | 'waiting' | 'countdown' | 'in-progress';
+  status: 'none' | 'waiting' | 'countdown' | 'in-progress' | 'expired';
   players: string[];
   playerNicknames: Record<string, string>;
   scores: Record<string, number>;
@@ -17,6 +17,7 @@ interface RoomContextType {
   readyPlayers: string[];
   currentWordIndex: number;
   lastAction: { playerId: string; action: 'correct' | 'failed'; solution: string; timestamp: number } | null;
+  lastActivity: number | null;
   createRoom: (playerId: string) => Promise<boolean>;
   joinRoom: (roomCode: string, playerId: string) => Promise<boolean>;
   getRoomInfo: (roomCode: string, playerId: string) => Promise<boolean>;
@@ -30,7 +31,7 @@ const RoomContext = createContext<RoomContextType | undefined>(undefined);
 
 export function RoomProvider({ children }: { children: ReactNode }) {
   const [roomCode, setRoomCode] = useState<string | null>(null);
-  const [status, setStatus] = useState<'none' | 'waiting' | 'countdown' | 'in-progress'>('none');
+  const [status, setStatus] = useState<'none' | 'waiting' | 'countdown' | 'in-progress' | 'expired'>('none');
   const [players, setPlayers] = useState<string[]>([]);
   const [playerNicknames, setPlayerNicknames] = useState<Record<string, string>>({});
   const [scores, setScores] = useState<Record<string, number>>({});
@@ -42,17 +43,23 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [readyPlayers, setReadyPlayers] = useState<string[]>([]);
   const [currentWordIndex, setCurrentWordIndex] = useState<number>(0);
   const [lastAction, setLastAction] = useState<{ playerId: string; action: 'correct' | 'failed'; solution: string; timestamp: number } | null>(null);
+  const [lastActivity, setLastActivity] = useState<number | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
 
   // Ref to hold the connection function to avoid closure issues
   const connectToRoomUpdatesRef = useRef<((roomCode: string, connectionPlayerId: string) => void) | null>(null);
   const roomCodeRef = useRef<string | null>(null);
+  const statusRef = useRef(status);
 
-  // Keep room code ref in sync
+  // Keep refs in sync
   useEffect(() => {
     roomCodeRef.current = roomCode;
   }, [roomCode]);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   // Initialize player ID from localStorage or create new one
   const [storedPlayerId] = useState<string | null>(() => {
@@ -86,10 +93,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
 
         // Handle expiration event
         if (data.status === 'expired') {
-          toast.error('Session Expired', {
-            description: data.message || 'Room closed due to inactivity',
-          });
-          leaveRoom();
+          setStatus('expired');
+          newEventSource.close();
+          setEventSource(null);
           return;
         }
 
@@ -103,6 +109,9 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         }
         if (data.lastAction) {
           setLastAction(data.lastAction);
+        }
+        if (data.lastActivity) {
+          setLastActivity(data.lastActivity);
         }
         if (data.words) {
           setWords(data.words);
@@ -119,7 +128,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         if ('currentWordIndex' in data) {
           setCurrentWordIndex(data.currentWordIndex);
         }
-        setStatus(data.status as 'none' | 'waiting' | 'countdown' | 'in-progress');
+        setStatus(data.status as 'none' | 'waiting' | 'countdown' | 'in-progress' | 'expired');
 
         // Handle countdown state with server sync
         if (data.status === 'countdown') {
@@ -165,19 +174,30 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       // Close the erroring connection to prevent further errors
       newEventSource.close();
 
+      // If we are already expired, do NOT attempt to reconnect
+      if (statusRef.current === 'expired') {
+        console.log('Room expired, stopping SSE reconnection');
+        setEventSource(null);
+        return;
+      }
+
       // Only try to reconnect if we're still in a room (roomCode exists)
       // This prevents reconnection attempts after leaving
       setTimeout(async () => {
         // Check if we're still in the same room before reconnecting
         if (roomCodeRef.current === roomCode && storedPlayerId && connectToRoomUpdatesRef.current) {
+
+          // Double check status before reconnecting
+          if (statusRef.current === 'expired') return;
+
           // Verify room still exists before reconnecting
           try {
             const checkResponse = await fetch(`/api/room?roomCode=${roomCode}&playerId=${storedPlayerId}`);
             if (checkResponse.status === 404) {
               console.log('Room no longer exists, stopping SSE reconnection');
-              setRoomCode(null);
-              setStatus('none');
-              setPlayers([]);
+              // If we get a 404 here, it likely expired. Set status to expired instead of none/reset.
+              setStatus('expired');
+              setEventSource(null);
               return;
             }
           } catch (e) {
@@ -254,6 +274,29 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     };
   }, [status, serverCountdownStart]); // Only include status and serverCountdownStart in dependency array
 
+  // Client-side expiration check
+  useEffect(() => {
+    if (status === 'expired' || !lastActivity) return;
+
+    const checkExpiration = () => {
+      // Check if room has expired based on lastActivity + TTL
+      // Adding a small buffer (1s) to align with server/Redis expiration
+      const expirationTime = lastActivity + (ROOM_TTL * 1000) + 1000;
+
+      if (Date.now() > expirationTime) {
+        console.log('Client-side expiration detected');
+        setStatus('expired');
+        if (eventSource) {
+          eventSource.close();
+          setEventSource(null);
+        }
+      }
+    };
+
+    const interval = setInterval(checkExpiration, 1000);
+    return () => clearInterval(interval);
+  }, [lastActivity, status, eventSource]);
+
   // Add visibility change handler to pause/resume countdown when tab visibility changes
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -303,6 +346,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setGameOver(data.gameOver || false);
         setWinner(data.winner || null);
         setReadyPlayers(data.readyPlayers || []);
+        setLastActivity(data.lastActivity || Date.now());
         if (connectToRoomUpdatesRef.current) {
           connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
         }
@@ -352,6 +396,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setReadyPlayers(data.readyPlayers || []);
         setCountdownRemaining(data.status === 'countdown' ? (data.remainingCountdown || null) : null);
         setServerCountdownStart(data.countdownStart || null);
+        setLastActivity(data.lastActivity || Date.now());
         if (connectToRoomUpdatesRef.current) {
           connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
         }
@@ -391,6 +436,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setReadyPlayers(data.readyPlayers || []);
         setCountdownRemaining(data.status === 'countdown' ? (data.remainingCountdown || null) : null);
         setServerCountdownStart(data.countdownStart || null);
+        setLastActivity(data.lastActivity || Date.now());
         if (connectToRoomUpdatesRef.current) {
           connectToRoomUpdatesRef.current(data.roomCode, roomPlayerId);
         }
@@ -437,6 +483,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setReadyPlayers([]); // Reset ready players when leaving room
     setCountdownRemaining(null);
     setLastAction(null); // Reset last action when leaving room
+    setLastActivity(null);
     setEventSource(null);
   }, [roomCode, storedPlayerId]);
 
@@ -457,6 +504,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setCountdownRemaining(null);
     setServerCountdownStart(null);
     setLastAction(null); // Reset last action when resetting room
+    setLastActivity(null);
     setEventSource(null);
   }, []);
 
@@ -516,6 +564,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     readyPlayers,
     currentWordIndex,
     lastAction,
+    lastActivity,
     createRoom,
     joinRoom,
     getRoomInfo,

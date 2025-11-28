@@ -101,6 +101,9 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // Update lastActivity
+        roomData.lastActivity = Date.now();
+
         // Update room data in Redis
         await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
 
