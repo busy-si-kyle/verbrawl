@@ -4,6 +4,7 @@ import { ROOM_TTL } from '@/lib/constants';
 import { publishRoomUpdate } from '../../../../lib/room-utils';
 
 const ROOM_PREFIX = 'room:';
+const ROOMS_SET = 'active_rooms';
 
 export async function POST(request: NextRequest) {
     const redis = getRedisClient();
@@ -104,10 +105,18 @@ export async function POST(request: NextRequest) {
         // Update lastActivity
         roomData.lastActivity = Date.now();
 
-        // Update room data in Redis
+        // Update room data in Redis and refresh TTL
         await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
 
-        // Publish update to subscribers
+        // Refresh room activity score in the active_rooms ZSET so that
+        // countActiveRooms uses real gameplay activity (guesses) as "keep alive"
+        // instead of only join/ready events.
+        await redis.zAdd(ROOMS_SET, {
+            score: Date.now(),
+            value: roomCode
+        });
+
+        // Publish update to subscribers (SSE clients)
         await publishRoomUpdate(roomCode, roomData);
 
         return new Response(JSON.stringify({

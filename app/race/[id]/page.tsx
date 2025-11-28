@@ -299,6 +299,19 @@ export default function RaceRoomPage() {
           toast.error('INVALID WORD', {
             description: 'TRY AGAIN',
           });
+
+          // Even invalid guesses should count as activity to keep the room alive
+          if (roomCode && playerId) {
+            try {
+              await fetch('/api/room/activity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomCode, playerId }),
+              });
+            } catch (error) {
+              console.error('Error sending activity heartbeat for invalid word:', error);
+            }
+          }
           return;
         }
 
@@ -386,9 +399,23 @@ export default function RaceRoomPage() {
             console.error('Error advancing word:', error);
           }
         } else {
-          // Move to next row
+          // Move to next row (player made a valid guess but still has attempts left)
           setCurrentRow(currentRow + 1);
           setCurrentCol(0);
+
+          // Treat this as activity to keep the room alive and reset TTL,
+          // even though the word did not advance yet.
+          if (roomCode && playerId) {
+            try {
+              await fetch('/api/room/activity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomCode, playerId }),
+              });
+            } catch (error) {
+              console.error('Error sending activity heartbeat:', error);
+            }
+          }
         }
       } finally {
         setIsSubmitting(false);

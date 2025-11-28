@@ -297,6 +297,27 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [lastActivity, status, eventSource]);
 
+  // Room expiration warning (15 seconds before expiration)
+  useEffect(() => {
+    if (status !== 'in-progress' || !lastActivity) return;
+
+    const WARNING_THRESHOLD = (ROOM_TTL - 15) * 1000; // 75 seconds = 15s before 90s expiry
+    let hasWarned = false;
+
+    const checkWarning = () => {
+      const timeSinceActivity = Date.now() - lastActivity;
+
+      //Show warning at 75 seconds if not already shown
+      if (timeSinceActivity >= WARNING_THRESHOLD && !hasWarned) {
+        hasWarned = true;
+        toast.warning('Room closing in 15s if no guess made');
+      }
+    };
+
+    const interval = setInterval(checkWarning, 1000);
+    return () => clearInterval(interval);
+  }, [lastActivity, status]);
+
   // Add visibility change handler to pause/resume countdown when tab visibility changes
   useEffect(() => {
     const handleVisibilityChange = () => {
