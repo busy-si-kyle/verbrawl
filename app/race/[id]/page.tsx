@@ -373,7 +373,8 @@ export default function RaceRoomPage() {
                 roomCode,
                 playerId,
                 success: true,
-                solution: solution
+                solution: solution,
+                currentWordIndex: currentWordIndex // Send the word index the player is guessing for
               })
             });
 
@@ -419,7 +420,8 @@ export default function RaceRoomPage() {
                 roomCode,
                 playerId,
                 success: false,
-                solution: solution
+                solution: solution,
+                currentWordIndex: currentWordIndex // Send the word index the player is guessing for
               })
             });
           } catch (error) {

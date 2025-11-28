@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-        const { roomCode, playerId, success, solution } = await request.json();
+        const { roomCode, playerId, success, solution, currentWordIndex: clientWordIndex } = await request.json();
 
         if (!roomCode || !playerId || success === undefined) {
             return new Response(JSON.stringify({ error: 'Room code, player ID, and success status are required' }), {
@@ -33,17 +33,18 @@ export async function POST(request: NextRequest) {
         const maxRetries = 3;
         let retries = 0;
         let transactionSuccess = false;
-
-        // Store the original word index from the first read (before any processing)
-        // This is used to detect if the word advanced between our first read and retry
-        let originalWordIndex: number | null = null;
+        
+        // Store the expected word index from the FIRST successful read (inside WATCH)
+        // This tells us what word index the player is trying to advance FROM
+        // If we read a higher index later, it means someone else already advanced it
+        let expectedWordIndex: number | null = null;
 
         while (retries < maxRetries && !transactionSuccess) {
             try {
                 // Watch the room key for changes
                 await redis.watch(`${ROOM_PREFIX}${roomCode}`);
 
-                // Get room data
+                // Get room data (this read is now protected by WATCH)
                 const roomDataString = await redis.get(`${ROOM_PREFIX}${roomCode}`);
 
                 if (!roomDataString) {
@@ -68,15 +69,21 @@ export async function POST(request: NextRequest) {
                 // Store the current word index we're working with
                 const currentIndex = Number(roomData.currentWordIndex) || 0;
                 
-                // On first read, store the original word index
-                if (originalWordIndex === null) {
-                    originalWordIndex = currentIndex;
+                // Use client-provided word index if available, otherwise use server-read index
+                // On the FIRST attempt, capture the expected word index
+                // This is the index we're trying to advance FROM
+                if (expectedWordIndex === null) {
+                    // Prefer client-provided index (more accurate) but fall back to server-read
+                    if (clientWordIndex !== undefined && clientWordIndex !== null) {
+                        expectedWordIndex = Number(clientWordIndex);
+                    } else {
+                        expectedWordIndex = currentIndex;
+                    }
                 }
                 
-                // CRITICAL: If this is a correct guess and the word has already advanced
-                // beyond the original index, another player already processed it.
-                // We must check this BEFORE awarding any points.
-                if (success && originalWordIndex !== null && currentIndex > originalWordIndex) {
+                // CRITICAL: If the server's current word index doesn't match what the client expects,
+                // it means another player already advanced it. Reject immediately.
+                if (success && expectedWordIndex !== null && currentIndex > expectedWordIndex) {
                     await redis.unwatch();
                     return new Response(JSON.stringify({ 
                         error: 'Word already advanced by opponent',
@@ -84,6 +91,15 @@ export async function POST(request: NextRequest) {
                         currentWordIndex: currentIndex
                     }), {
                         status: 409, // Conflict
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                }
+                
+                // Also check: if currentIndex is less than expected, something is wrong
+                if (expectedWordIndex !== null && currentIndex < expectedWordIndex) {
+                    await redis.unwatch();
+                    return new Response(JSON.stringify({ error: 'Invalid game state' }), {
+                        status: 500,
                         headers: { 'Content-Type': 'application/json' },
                     });
                 }
@@ -114,7 +130,18 @@ export async function POST(request: NextRequest) {
                     timestamp: Date.now()
                 };
 
-                // Advance to next word
+                // Advance to next word (only if we're still on the expected index)
+                if (expectedWordIndex !== null && currentIndex !== expectedWordIndex) {
+                    await redis.unwatch();
+                    return new Response(JSON.stringify({ 
+                        error: 'Word index mismatch - cannot advance',
+                        alreadyAdvanced: currentIndex > expectedWordIndex
+                    }), {
+                        status: 409,
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                }
+                
                 roomData.currentWordIndex = currentIndex + 1;
 
                 // Check if game is over (someone reached 5 points)
@@ -152,11 +179,7 @@ export async function POST(request: NextRequest) {
                 roomData.lastActivity = Date.now();
 
                 // Execute transaction atomically
-                // We verify the word index hasn't changed by checking it in the transaction
                 const multi = redis.multi();
-                
-                // First, verify the word index is still what we expect (additional safety check)
-                // We can't do a conditional SET in Redis directly, but WATCH will catch changes
                 multi.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
                 multi.zAdd(ROOMS_SET, {
                     score: Date.now(),
@@ -175,9 +198,9 @@ export async function POST(request: NextRequest) {
                         const updatedRoomData = JSON.parse(updatedRoomDataString);
                         const updatedIndex = Number(updatedRoomData.currentWordIndex) || 0;
                         
-                        // CRITICAL: If this was a correct guess and the word has already advanced,
-                        // the opponent got there first - immediately return conflict, do NOT retry
-                        if (success && originalWordIndex !== null && updatedIndex > originalWordIndex) {
+                        // CRITICAL: If this was a correct guess and the word has already advanced
+                        // beyond what we expected, the opponent got there first - immediately return conflict
+                        if (success && expectedWordIndex !== null && updatedIndex > expectedWordIndex) {
                             return new Response(JSON.stringify({ 
                                 error: 'Word already advanced by opponent',
                                 alreadyAdvanced: true,
