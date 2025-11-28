@@ -301,17 +301,17 @@ export default function RaceRoomPage() {
           });
 
           // Even invalid guesses should count as activity to keep the room alive
+          // Fire-and-forget: don't block UI waiting for this
           if (roomCode && playerId) {
-            try {
-              await fetch('/api/room/activity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ roomCode, playerId }),
-              });
-            } catch (error) {
+            fetch('/api/room/activity', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ roomCode, playerId }),
+            }).catch(error => {
               console.error('Error sending activity heartbeat for invalid word:', error);
-            }
+            });
           }
+          setIsSubmitting(false);
           return;
         }
 
@@ -319,6 +319,7 @@ export default function RaceRoomPage() {
         // Check if game is properly initialized before processing
         if (!words || words.length === 0 || currentWordIndex >= words.length || currentWordIndex < 0) {
           console.error(`Game not properly initialized: words length = ${words?.length || 0}, currentWordIndex = ${currentWordIndex}`);
+          setIsSubmitting(false);
           return; // Exit early if game isn't properly initialized
         }
 
@@ -326,6 +327,7 @@ export default function RaceRoomPage() {
         // Add safety check to ensure solution exists before processing
         if (!solution) {
           console.error(`No solution found for word index ${currentWordIndex}, available words: ${words.length}`);
+          setIsSubmitting(false);
           return; // Exit early if solution doesn't exist yet
         }
 
@@ -355,14 +357,16 @@ export default function RaceRoomPage() {
 
         // Check if the word was guessed correctly
         if (currentWord === solution.toLowerCase()) {
-          // Show success notification
-          toast.success('CORRECT!', {
+          // Show success notification (will be updated if opponent got it first)
+          const correctToast = toast.success('CORRECT!', {
             description: solution.toUpperCase(),
           });
 
           // Call API to advance word and update score
+          // IMPORTANT: We await this to ensure game state synchronization
+          // Both players need to see the word advance at the same time via SSE
           try {
-            await fetch('/api/room/advanceword', {
+            const response = await fetch('/api/room/advanceword', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -372,9 +376,31 @@ export default function RaceRoomPage() {
                 solution: solution
               })
             });
+
+            const data = await response.json();
+
+            // Check if opponent got it first (409 Conflict)
+            if (response.status === 409 || data.alreadyAdvanced) {
+              // Opponent got it first - update the toast
+              toast.dismiss(correctToast);
+              toast.warning('Opponent got it first!', {
+                description: `The word was ${solution.toUpperCase()}`,
+              });
+              // Don't award point - SSE will update scores from server
+            } else if (!response.ok) {
+              // Other error
+              toast.dismiss(correctToast);
+              toast.error('Error processing guess');
+            }
+            // If successful (200), keep the "CORRECT!" toast and point is awarded
           } catch (error) {
             console.error('Error advancing word:', error);
+            toast.dismiss(correctToast);
+            toast.error('Error processing guess');
           }
+          // Reset submitting after API call completes
+          // Board will reset automatically when currentWordIndex changes via SSE
+          setIsSubmitting(false);
         } else if (currentRow === MAX_ATTEMPTS - 1) {
           // Player has used all attempts for this word
           if (solution) {
@@ -384,6 +410,7 @@ export default function RaceRoomPage() {
           }
 
           // Call API to advance word (failure case)
+          // IMPORTANT: We await this to ensure game state synchronization
           try {
             await fetch('/api/room/advanceword', {
               method: 'POST',
@@ -398,27 +425,34 @@ export default function RaceRoomPage() {
           } catch (error) {
             console.error('Error advancing word:', error);
           }
+          // Reset submitting after API call completes
+          // Board will reset automatically when currentWordIndex changes via SSE
+          setIsSubmitting(false);
         } else {
           // Move to next row (player made a valid guess but still has attempts left)
           setCurrentRow(currentRow + 1);
           setCurrentCol(0);
 
+          // Reset submitting immediately - no word advance, so no sync needed
+          setIsSubmitting(false);
+
           // Treat this as activity to keep the room alive and reset TTL,
           // even though the word did not advance yet.
+          // Fire-and-forget: don't block UI waiting for this
           if (roomCode && playerId) {
-            try {
-              await fetch('/api/room/activity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ roomCode, playerId }),
-              });
-            } catch (error) {
+            fetch('/api/room/activity', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ roomCode, playerId }),
+            }).catch(error => {
               console.error('Error sending activity heartbeat:', error);
-            }
+            });
           }
         }
-      } finally {
+      } catch (error) {
+        // If any error occurs, make sure to reset submitting flag
         setIsSubmitting(false);
+        console.error('Error in handleKeyPress:', error);
       }
     } else if (key === 'Backspace') {
       if (currentCol > 0) {
