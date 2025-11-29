@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient, getRedisPubSubClient } from '@/lib/redis';
 import { ROOM_TTL, COUNTDOWN_DURATION } from '@/lib/constants';
-import { countActiveRooms } from '@/lib/player-count-utils';
+
 import { ROOM_UPDATES_CHANNEL_PREFIX } from '../../../../lib/room-utils';
 
 const ROOM_PREFIX = 'room:';
@@ -42,9 +42,6 @@ export async function GET(req: NextRequest) {
 
   // Verify player is in the room
   const playerRoomCode = await redis.get(`${PLAYER_PREFIX}${playerId}`);
-
-  // Trigger cleanup of expired rooms on new connection
-  countActiveRooms(redis).catch(err => console.error('Background room cleanup error (SSE):', err));
 
   if (playerRoomCode !== roomCode) {
     await subscriber.disconnect();

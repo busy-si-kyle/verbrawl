@@ -45,26 +45,32 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Update lastActivity to mark recent interaction
-    roomData.lastActivity = Date.now();
+    // Only update activity if >10 seconds have passed
+    const now = Date.now();
+    const prevLastActivity = roomData.lastActivity || 0;
+    if (now - prevLastActivity < 10000) {
+      // No need to update Redis or broadcast, already fresh
+      return new Response(JSON.stringify({ ok: true, message: 'Activity recently updated' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    roomData.lastActivity = now;
 
-    // Refresh room TTL
-    await redis.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
-
-    // Refresh room activity in the active_rooms ZSET so inactivity cleanup
-    // treats this as a keep-alive
-    await redis.zAdd(ROOMS_SET, {
-      score: Date.now(),
+    // Redis multi/transaction for efficiency and atomicity
+    const multi = redis.multi();
+    multi.setEx(`${ROOM_PREFIX}${roomCode}`, ROOM_TTL, JSON.stringify(roomData));
+    multi.zAdd(ROOMS_SET, {
+      score: now,
       value: roomCode,
     });
+    multi.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
+    await multi.exec();
 
-    // Also refresh the player mapping TTL so SSE reconnections keep working
-    await redis.setEx(`${PLAYER_PREFIX}${playerId}`, ROOM_TTL, roomCode);
-
-    // Publish updated state so clients receive the new lastActivity
+    // Publish update so clients reset their local expiration timers
     await publishRoomUpdate(roomCode, roomData);
 
-    return new Response(JSON.stringify({ ok: true }), {
+    return new Response(JSON.stringify({ ok: true, message: 'Activity updated' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });

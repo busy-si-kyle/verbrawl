@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
 import { getRedisClient } from '@/lib/redis';
-import { countActiveSessions } from '@/lib/player-count-utils';
 import { PLAYER_COUNT_CHANNEL } from '@/lib/player-count-constants';
 
 const ACTIVE_SESSIONS_SET = 'active_sessions';
@@ -32,8 +31,9 @@ export async function GET(request: NextRequest) {
       }));
     }
 
-    // Get the count of active sessions (automatically cleans up expired ones)
-    const activeCount = await countActiveSessions(redis);
+    // Optimization: DO NOT prune expired sessions here (done by background job)
+    // Just count sessions that are present
+    const activeCount = await redis.zCard(ACTIVE_SESSIONS_SET);
 
     return new Response(JSON.stringify({
       count: activeCount,
