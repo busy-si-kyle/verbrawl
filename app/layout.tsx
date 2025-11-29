@@ -20,7 +20,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Verbrawl",
-  description: "A Wordle-inspired game with time limits and race modes",
+  description: "Play Verbrawl, the ultimate multiplayer Wordle game. Challenge friends in a word duel, race against time, and brawl for the highest score. Free online word game.",
+  keywords: ["wordle", "word duel", "word brawl", "multiplayer wordle", "word race", "word game", "online word game", "verbrawl", "squabble alternative"],
   icons: {
     icon: [
       { url: '/verbrawl.ico' },        // Standard favicon for search engines
@@ -28,6 +29,18 @@ export const metadata: Metadata = {
     ],
     shortcut: '/verbrawl.ico',
     apple: '/verbrawl.svg',
+  },
+  openGraph: {
+    title: "Verbrawl",
+    description: "Play Verbrawl, the ultimate multiplayer Wordle game. Challenge friends in a word duel, race against time, and brawl for the highest score.",
+    type: "website",
+    url: "https://verbrawl.vercel.app",
+    siteName: "Verbrawl",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Verbrawl",
+    description: "Play Verbrawl, the ultimate multiplayer Wordle game. Challenge friends in a word duel, race against time, and brawl for the highest score.",
   },
 };
 
