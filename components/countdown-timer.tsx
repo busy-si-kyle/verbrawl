@@ -46,14 +46,15 @@ export function CountdownTimer({ remainingTime, onComplete, timerStarted = true,
           const elapsed = Date.now() - (startTimeRef.current || Date.now());
           // Calculate new time based on remainingTime prop minus elapsed
           const newTime = Math.max(0, remainingTime - elapsed);
-          
+
           if (newTime <= 0) {
             if (intervalRef.current) {
               clearInterval(intervalRef.current);
               intervalRef.current = null;
             }
             startTimeRef.current = null;
-            onComplete();
+            // Defer onComplete to next tick to avoid updating parent during render
+            setTimeout(() => onComplete(), 0);
             return 0;
           }
           return newTime;
